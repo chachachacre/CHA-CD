@@ -1,0 +1,6 @@
+{
+  "name": "CHA CD Portfolio",
+  "description": "Creative Director CHA's Advertisement Portfolio & Showcase",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

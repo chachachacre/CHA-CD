@@ -1,0 +1,98 @@
+import { PortfolioItem, ContactInfo, PortfolioSettings } from "./types";
+
+export const initialPortfolioItems: PortfolioItem[] = [
+  {
+    id: "1",
+    title: "AI Commercial 01",
+    client: "Genesis - The Art of AI Movement",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4",
+    thumbnailUrl: "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800",
+    year: "2026",
+    description: "생성형 AI 기술을 활용하여 빚어낸 프리미엄 럭셔리 자동차 브랜드 제네시스의 시네마틱 광고 영상. 어둠 속에서 빛나는 헤드라이트의 절제된 아름다움과 미래지향적 가치를 조명합니다.",
+    order: 1,
+  },
+  {
+    id: "2",
+    title: "AI Commercial 02",
+    client: "Samsung Galaxy - Cognitive Era",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-circuit-board-glowing-under-uv-light-41804-large.mp4",
+    thumbnailUrl: "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&q=80&w=800",
+    year: "2025",
+    description: "차세대 갤럭시 모바일 디바이스에 탑재될 초정밀 지능형 신경망 칩셋을 표현한 비주얼 아트 광고. 신경 회로와 지각의 유기적 결합을 상상력 넘치는 고해상도 그래픽으로 연출했습니다.",
+    order: 2,
+  },
+  {
+    id: "3",
+    title: "AI Commercial 03",
+    client: "Nike - Run into the AI Dawn",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-woman-running-on-the-beach-at-sunset-29007-large.mp4",
+    thumbnailUrl: "https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?auto=format&fit=crop&q=80&w=800",
+    year: "2025",
+    description: "인간의 한계와 도전 정신을 AI 무한 확장 공간을 통해 묘사한 나이키의 하이퍼 다이내믹 캠페인. 노을빛 해안을 가르는 러너의 움직임을 매끄럽고 장엄한 슬로우 모션으로 구현했습니다.",
+    order: 3,
+  },
+  {
+    id: "4",
+    title: "AI Commercial 04",
+    client: "LG ThinQ - Serene Habitat",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-living-room-with-modern-minimalist-furniture-41551-large.mp4",
+    thumbnailUrl: "https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&q=80&w=800",
+    year: "2025",
+    description: "미니멀리즘 건축 미학과 초연결 가전의 조화로운 삶을 담아낸 LG 씽큐 스마트 홈 시네마틱. 빛과 여백의 조절을 통해 정서적 깊이와 기술적 따뜻함이 어우러진 공간감을 완성했습니다.",
+    order: 4,
+  },
+  {
+    id: "5",
+    title: "AI Commercial 05",
+    client: "Apple - Spatial Odyssey",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-glowing-hud-elements-41793-large.mp4",
+    thumbnailUrl: "https://images.unsplash.com/photo-1593508512255-86ab42a8e620?auto=format&fit=crop&q=80&w=800",
+    year: "2026",
+    description: "공간 컴퓨팅과 비전 프로의 사용자 경험적 경이로움을 극적인 인터랙티브 비주얼로 표현한 비주얼 티저. 일상의 사물이 물리적 한계를 벗어나 다차원 홀로그램으로 변환되는 찰나를 묘사했습니다.",
+    order: 5,
+  },
+  {
+    id: "6",
+    title: "AI Commercial 06",
+    client: "Hyundai IONIQ - Charging Tomorrow",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-electric-car-charging-at-a-station-in-a-garage-42168-large.mp4",
+    thumbnailUrl: "https://images.unsplash.com/photo-1563720223185-11003d516935?auto=format&fit=crop&q=80&w=800",
+    year: "2026",
+    description: "전기 에너지가 모빌리티에 주입되는 과정과 미래의 스마트 에코 도시 인프라를 연결한 현대 아이오닉의 브랜드 필름. 에너지가 유기적으로 이동하는 전율의 순간을 네온 라인 비주얼로 다뤘습니다.",
+    order: 6,
+  },
+  {
+    id: "7",
+    title: "AI Commercial 07",
+    client: "Prada - AI Virtual Runway 2026",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-girl-posing-in-front-of-neon-lights-42211-large.mp4",
+    thumbnailUrl: "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&q=80&w=800",
+    year: "2026",
+    description: "전통적 명품 오트쿠튀르의 디테일과 초현실적 아방가르드 디지털 무대를 융합한 프라다 가상 패션쇼 아트워크. 화려한 네온 무드 아래 흐르는 디지털 실크의 미세한 움직임을 재현했습니다.",
+    order: 7,
+  },
+  {
+    id: "8",
+    title: "AI Commercial 08",
+    client: "Coca-Cola - Real Magic AI",
+    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-pouring-soda-into-a-glass-with-ice-and-bubbles-42268-large.mp4",
+    thumbnailUrl: "https://images.unsplash.com/photo-1554866585-cd94860890b7?auto=format&fit=crop&q=80&w=800",
+    year: "2025",
+    description: "차가운 탄산과 기포가 어우러져 만들어내는 작은 환상적 파티클들을 극도로 클로즈업한 코카콜라 AI 캠페인 영상. 소리의 미세한 진동을 완벽한 리듬의 비주얼과 거품의 율동으로 나타냈습니다.",
+    order: 8,
+  },
+];
+
+export const initialContactInfo: ContactInfo = {
+  email: "cha.cd@brandcreative.com",
+  phone: "+82-2-1234-5678",
+  instagram: "cha_cd_creative",
+  linkedin: "linkedin.com/in/cha-cd-creative",
+  officeAddress: "서울특별시 강남구 테헤란로 518, 12층 (CHA CD 스튜디오)",
+};
+
+export const initialPortfolioSettings: PortfolioSettings = {
+  pdfUrl: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+  pdfFileName: "CHA_CD_Portfolio_2026_Full.pdf",
+  introduction: "20년 이상의 풍부한 실무 경험을 바탕으로 브랜드에 새 생명을 불어넣습니다. 디지털 미디어와 생성형 AI 광고의 한계를 뛰어넘어 혁신적인 크리에이티브 솔루션을 기획합니다. 제작 본부장이자 총괄 크리에이티브 디렉터 CHA CD입니다.",
+};
