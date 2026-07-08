@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X,
@@ -19,11 +19,14 @@ import {
   Check,
   Eye,
   Upload,
-  AlertCircle
+  AlertCircle,
+  Cloud,
+  Loader2
 } from "lucide-react";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "../types";
 import { savePDF, getPDF, deletePDF, saveMediaFile, getMediaFile, deleteMediaFile, useMediaUrl } from "../pdfStorage";
 import { ResolvedImage } from "./ResolvedImage";
+import { uploadToStorage, deleteFromStorage, syncStorageUrlsToFirestore, syncPdfUrlToFirestore } from "../firebase";
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -31,9 +34,9 @@ interface AdminPanelProps {
   portfolioItems: PortfolioItem[];
   contactInfo: ContactInfo;
   portfolioSettings: PortfolioSettings;
-  onUpdateItems: (items: PortfolioItem[]) => void;
-  onUpdateContact: (contact: ContactInfo) => void;
-  onUpdateSettings: (settings: PortfolioSettings) => void;
+  onUpdateItems: (items: PortfolioItem[]) => Promise<void> | void;
+  onUpdateContact: (contact: ContactInfo) => Promise<void> | void;
+  onUpdateSettings: (settings: PortfolioSettings) => Promise<void> | void;
 }
 
 export default function AdminPanel({
@@ -49,6 +52,129 @@ export default function AdminPanel({
   const [password, setPassword] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loginError, setLoginError] = useState("");
+
+  // Cloud migration states
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationStatus, setMigrationStatus] = useState("");
+
+  // Storage Auto-Sync state and action
+  const [isSyncingStorage, setIsSyncingStorage] = useState(false);
+
+  const handleAutoSyncStorage = async (silent = false) => {
+    if (isSyncingStorage) return;
+    setIsSyncingStorage(true);
+    try {
+      const { updatedItems, count: itemCount } = await syncStorageUrlsToFirestore(
+        portfolioItems,
+        async (items) => {
+          await onUpdateItems(items);
+        }
+      );
+
+      const { changed: pdfChanged } = await syncPdfUrlToFirestore(
+        portfolioSettings,
+        async (settings) => {
+          await onUpdateSettings(settings);
+        }
+      );
+
+      if (!silent) {
+        if (itemCount > 0 || pdfChanged) {
+          triggerSaveNotification(`🎉 클라우드 저장소 파일 연동 완료! 총 ${itemCount}개의 파일 링크가 자동으로 갱신되었습니다.`);
+        } else {
+          triggerSaveNotification(`이미 모든 저장소 파일들과 완벽히 연동되어 있습니다.`);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      if (!silent) {
+        alert("저장소 파일 자동 연동 중 오류가 발생했습니다.");
+      }
+    } finally {
+      setIsSyncingStorage(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Trigger auto sync seamlessly upon login!
+      handleAutoSyncStorage(true).catch(console.error);
+    }
+  }, [isAuthenticated]);
+
+  const hasLocalAssets = useMemo(() => {
+    const hasLocalPdf = portfolioSettings.pdfUrl === "local_indexeddb" || (portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("indexeddb:"));
+    const hasLocalItem = portfolioItems.some(
+      (item) => (item.thumbnailUrl && item.thumbnailUrl.startsWith("indexeddb:")) || (item.videoUrl && item.videoUrl.startsWith("indexeddb:"))
+    );
+    return hasLocalPdf || hasLocalItem;
+  }, [portfolioSettings, portfolioItems]);
+
+  const handleCloudMigration = async () => {
+    if (isMigrating) return;
+    setIsMigrating(true);
+    setMigrationStatus("클라우드 마이그레이션 분석 중...");
+    try {
+      let updatedSettings = { ...portfolioSettings };
+      const isPdfLocal = portfolioSettings.pdfUrl === "local_indexeddb" || (portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("indexeddb:"));
+      
+      if (isPdfLocal) {
+        setMigrationStatus("포트폴리오 PDF 파일 클라우드 전송 중...");
+        const pdfFile = await getPDF();
+        if (pdfFile) {
+          const downloadUrl = await uploadToStorage(`pdf/${pdfFile.name}`, pdfFile);
+          updatedSettings = {
+            ...updatedSettings,
+            pdfUrl: downloadUrl,
+          };
+          onUpdateSettings(updatedSettings);
+        }
+      }
+
+      const updatedItems = [...portfolioItems];
+      for (let i = 0; i < updatedItems.length; i++) {
+        const item = { ...updatedItems[i] };
+        let itemChanged = false;
+
+        if (item.thumbnailUrl && item.thumbnailUrl.startsWith("indexeddb:")) {
+          const key = item.thumbnailUrl.replace("indexeddb:", "");
+          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 업로드 중...`);
+          const file = await getMediaFile(key);
+          if (file) {
+            const downloadUrl = await uploadToStorage(`thumbnails/${item.id}_${file.name}`, file);
+            item.thumbnailUrl = downloadUrl;
+            itemChanged = true;
+          }
+        }
+
+        if (item.videoUrl && item.videoUrl.startsWith("indexeddb:")) {
+          const key = item.videoUrl.replace("indexeddb:", "");
+          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 업로드 중...`);
+          const file = await getMediaFile(key);
+          if (file) {
+            const downloadUrl = await uploadToStorage(`videos/${item.id}_${file.name}`, file);
+            item.videoUrl = downloadUrl;
+            itemChanged = true;
+          }
+        }
+
+        if (itemChanged) {
+          updatedItems[i] = item;
+        }
+      }
+
+      setMigrationStatus("클라우드 데이터베이스 최신화 중...");
+      await onUpdateItems(updatedItems);
+      
+      triggerSaveNotification("모든 자산이 클라우드로 완벽히 전송 및 연동되었습니다! 🎉");
+      setMigrationStatus("");
+    } catch (err) {
+      console.error("Migration failed:", err);
+      alert("마이그레이션 중 오류가 발생했습니다: " + (err as Error).message);
+    } finally {
+      setIsMigrating(false);
+    }
+  };
 
   // Managing items edit state
   const [editingItem, setEditingItem] = useState<PortfolioItem | null>(null);
@@ -71,6 +197,9 @@ export default function AdminPanel({
   // Sync props to state if they change
   useEffect(() => {
     setSettingsForm(portfolioSettings);
+    if (portfolioSettings.pdfFileName) {
+      setUploadedFileName(portfolioSettings.pdfFileName);
+    }
   }, [portfolioSettings]);
 
   useEffect(() => {
@@ -78,7 +207,7 @@ export default function AdminPanel({
   }, [contactInfo]);
 
   // File upload state & handlers
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(portfolioSettings.pdfFileName || null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,6 +215,10 @@ export default function AdminPanel({
   const thumbFileInputRef = useRef<HTMLInputElement>(null);
   const [videoUploadProgress, setVideoUploadProgress] = useState<string | null>(null);
   const [thumbUploadProgress, setThumbUploadProgress] = useState<string | null>(null);
+
+  // Directly upload from list state
+  const [activeUploadItemId, setActiveUploadItemId] = useState<string | null>(null);
+  const [uploadProgressMap, setUploadProgressMap] = useState<{[key: string]: string}>({});
 
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -96,26 +229,50 @@ export default function AdminPanel({
       return;
     }
 
-    const itemId = itemForm.id || (editingItem ? editingItem.id : null);
-    if (!itemId) {
+    const targetId = activeUploadItemId || itemForm.id || (editingItem ? editingItem.id : null);
+    if (!targetId) {
       alert("작업물 ID가 생성되지 않았습니다.");
       return;
     }
 
     try {
+      setUploadProgressMap(prev => ({ ...prev, [`video-${targetId}`]: "업로드 중..." }));
       setVideoUploadProgress("업로드 중...");
-      const key = `media_video_${itemId}`;
-      await saveMediaFile(key, file);
-      setItemForm((prev) => ({
-        ...prev,
-        videoUrl: `indexeddb:${key}`
-      }));
+      
+      const downloadUrl = await uploadToStorage(`videos/${targetId}_${file.name}`, file);
+      
+      // Update the active form state if we are currently editing/creating this item in the form
+      if (itemForm.id === targetId || (editingItem && editingItem.id === targetId)) {
+        setItemForm((prev) => ({
+          ...prev,
+          videoUrl: downloadUrl
+        }));
+      }
+
+      // If the item already exists in the list, update and save to Firestore immediately
+      const itemExists = portfolioItems.some(item => item.id === targetId);
+      if (itemExists) {
+        const updated = portfolioItems.map((item) =>
+          item.id === targetId ? { ...item, videoUrl: downloadUrl } : item
+        );
+        await onUpdateItems(updated);
+      }
+
+      setUploadProgressMap(prev => ({ ...prev, [`video-${targetId}`]: "완료" }));
       setVideoUploadProgress("완료");
-      triggerSaveNotification(`동영상 파일이 업로드되었습니다.`);
+      triggerSaveNotification(`동영상 파일이 클라우드에 성공적으로 업로드 및 연동되었습니다.`);
     } catch (err) {
       console.error(err);
       alert("동영상 업로드 중 오류가 발생했습니다.");
+      setUploadProgressMap(prev => {
+        const copy = { ...prev };
+        delete copy[`video-${targetId}`];
+        return copy;
+      });
       setVideoUploadProgress(null);
+    } finally {
+      if (videoFileInputRef.current) videoFileInputRef.current.value = "";
+      setActiveUploadItemId(null);
     }
   };
 
@@ -128,39 +285,57 @@ export default function AdminPanel({
       return;
     }
 
-    const itemId = itemForm.id || (editingItem ? editingItem.id : null);
-    if (!itemId) {
+    const targetId = activeUploadItemId || itemForm.id || (editingItem ? editingItem.id : null);
+    if (!targetId) {
       alert("작업물 ID가 생성되지 않았습니다.");
       return;
     }
 
     try {
+      setUploadProgressMap(prev => ({ ...prev, [`thumb-${targetId}`]: "업로드 중..." }));
       setThumbUploadProgress("업로드 중...");
-      const key = `media_thumb_${itemId}`;
-      await saveMediaFile(key, file);
-      setItemForm((prev) => ({
-        ...prev,
-        thumbnailUrl: `indexeddb:${key}`
-      }));
+      
+      const downloadUrl = await uploadToStorage(`thumbnails/${targetId}_${file.name}`, file);
+      
+      // Update the active form state if we are currently editing/creating this item in the form
+      if (itemForm.id === targetId || (editingItem && editingItem.id === targetId)) {
+        setItemForm((prev) => ({
+          ...prev,
+          thumbnailUrl: downloadUrl
+        }));
+      }
+
+      // If the item already exists in the list, update and save to Firestore immediately
+      const itemExists = portfolioItems.some(item => item.id === targetId);
+      if (itemExists) {
+        const updated = portfolioItems.map((item) =>
+          item.id === targetId ? { ...item, thumbnailUrl: downloadUrl } : item
+        );
+        await onUpdateItems(updated);
+      }
+
+      setUploadProgressMap(prev => ({ ...prev, [`thumb-${targetId}`]: "완료" }));
       setThumbUploadProgress("완료");
-      triggerSaveNotification(`썸네일 이미지 파일이 업로드되었습니다.`);
+      triggerSaveNotification(`썸네일 파일이 클라우드에 성공적으로 업로드 및 연동되었습니다.`);
     } catch (err) {
       console.error(err);
       alert("썸네일 이미지 업로드 중 오류가 발생했습니다.");
+      setUploadProgressMap(prev => {
+        const copy = { ...prev };
+        delete copy[`thumb-${targetId}`];
+        return copy;
+      });
       setThumbUploadProgress(null);
+    } finally {
+      if (thumbFileInputRef.current) thumbFileInputRef.current.value = "";
+      setActiveUploadItemId(null);
     }
   };
 
   const checkUploadedFile = async () => {
-    try {
-      const file = await getPDF();
-      if (file) {
-        setUploadedFileName(file.name);
-      } else {
-        setUploadedFileName(null);
-      }
-    } catch (err) {
-      console.error(err);
+    if (portfolioSettings.pdfFileName) {
+      setUploadedFileName(portfolioSettings.pdfFileName);
+    } else {
       setUploadedFileName(null);
     }
   };
@@ -169,7 +344,7 @@ export default function AdminPanel({
     if (isOpen && isAuthenticated) {
       checkUploadedFile();
     }
-  }, [isOpen, isAuthenticated]);
+  }, [isOpen, isAuthenticated, portfolioSettings]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -181,26 +356,30 @@ export default function AdminPanel({
     }
 
     try {
-      await savePDF(file);
+      setUploadedFileName("업로드 중...");
+      const downloadUrl = await uploadToStorage(`pdf/${file.name}`, file);
       const updatedSettings = {
         ...settingsForm,
         pdfFileName: file.name,
-        pdfUrl: "local_indexeddb", // Marker for app loading
+        pdfUrl: downloadUrl,
       };
       setSettingsForm(updatedSettings);
       onUpdateSettings(updatedSettings);
       setUploadedFileName(file.name);
-      triggerSaveNotification("포트폴리오 PDF 파일이 업로드되었습니다.");
+      triggerSaveNotification("포트폴리오 PDF 파일이 클라우드에 업로드되었습니다.");
     } catch (err) {
       console.error(err);
       alert("파일 업로드 중 오류가 발생했습니다.");
+      setUploadedFileName(null);
     }
   };
 
   const handleFileDelete = async () => {
     if (confirm("정말로 업로드된 포트폴리오 PDF 파일을 삭제하시겠습니까?")) {
       try {
-        await deletePDF();
+        if (settingsForm.pdfFileName) {
+          await deleteFromStorage(`pdf/${settingsForm.pdfFileName}`);
+        }
         setUploadedFileName(null);
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
@@ -241,19 +420,21 @@ export default function AdminPanel({
     }
 
     try {
-      await savePDF(file);
+      setUploadedFileName("업로드 중...");
+      const downloadUrl = await uploadToStorage(`pdf/${file.name}`, file);
       const updatedSettings = {
         ...settingsForm,
         pdfFileName: file.name,
-        pdfUrl: "local_indexeddb",
+        pdfUrl: downloadUrl,
       };
       setSettingsForm(updatedSettings);
       onUpdateSettings(updatedSettings);
       setUploadedFileName(file.name);
-      triggerSaveNotification("포트폴리오 PDF 파일이 업로드되었습니다.");
+      triggerSaveNotification("포트폴리오 PDF 파일이 클라우드에 업로드되었습니다.");
     } catch (err) {
       console.error(err);
       alert("파일 업로드 중 오류가 발생했습니다.");
+      setUploadedFileName(null);
     }
   };
 
@@ -479,6 +660,88 @@ export default function AdminPanel({
           ) : (
             /* Authenticated Admin Screens */
             <div className="space-y-10">
+              {/* Storage Auto-Sync Utility Box */}
+              <div className="border border-neutral-200 bg-neutral-50/50 p-5 rounded-none space-y-3">
+                <div className="flex gap-3">
+                  <Cloud className="w-5 h-5 text-neutral-800 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-900 font-mono">
+                      🔄 클라우드 저장소 파일 자동 연동
+                    </h4>
+                    <p className="text-xs text-neutral-600 leading-relaxed font-light">
+                      이미 파이어베이스 스토리지(Firebase Storage)에 업로드되어 있는 파일이 있나요? 
+                      별도로 직접 링크 주소를 찾아 복사-붙여넣기 할 필요 없이, 
+                      아래 버튼을 클릭하면 <strong>모든 동영상, 썸네일, 포트폴리오 PDF 파일을 자동으로 탐색하여 한 번에 연동</strong>해 드립니다.
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    onClick={() => handleAutoSyncStorage(false)}
+                    disabled={isSyncingStorage}
+                    className="inline-flex items-center gap-2 bg-neutral-900 hover:bg-black disabled:bg-neutral-400 text-white font-bold tracking-widest text-[10px] uppercase px-4 py-2.5 transition-all cursor-pointer rounded-none font-mono"
+                  >
+                    {isSyncingStorage ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>자동 연동 중...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Cloud className="w-3.5 h-3.5" />
+                        <span>클라우드 저장소 파일 자동 연동하기</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Cloud Sync Warning Banner */}
+              {hasLocalAssets && (
+                <div className="border border-amber-200 bg-amber-50/50 p-5 rounded-none space-y-3">
+                  <div className="flex gap-3">
+                    <Cloud className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900 font-mono">
+                        ⚠️ 로컬 데이터 발견 (모바일 미연동 상태)
+                      </h4>
+                      <p className="text-xs text-amber-700 leading-relaxed font-light">
+                        현재 이 브라우저(PC)에 임시 저장되어 있는 파일(PDF, 썸네일, 동영상)이 있습니다.
+                        이 상태에서는 <strong>모바일 기기나 다른 브라우저에서 이미지와 영상이 표시되지 않습니다.</strong>
+                        <br />
+                        아래 버튼을 눌러 모든 데이터를 글로벌 클라우드(Firebase)로 전송하고 연동하세요.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      onClick={handleCloudMigration}
+                      disabled={isMigrating}
+                      className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white font-bold tracking-widest text-[10px] uppercase px-4 py-2.5 transition-all cursor-pointer rounded-none font-mono"
+                    >
+                      {isMigrating ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>전송 중...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Cloud className="w-3.5 h-3.5" />
+                          <span>클라우드로 일괄 전송 (모바일 연동)</span>
+                        </>
+                      )}
+                    </button>
+                    {isMigrating && (
+                      <span className="text-[11px] text-amber-600 font-medium font-mono animate-pulse">
+                        {migrationStatus}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* 1. Featured Works Editor */}
               <section className="space-y-4">
                 <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
@@ -720,6 +983,51 @@ export default function AdminPanel({
                             <p className="text-neutral-500 truncate max-w-[280px]">
                               {item.client} ({item.year})
                             </p>
+
+                            {/* Direct Cloud Upload Shortcut Buttons */}
+                            <div className="flex gap-2 mt-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveUploadItemId(item.id);
+                                  setTimeout(() => thumbFileInputRef.current?.click(), 50);
+                                }}
+                                className="text-[9px] font-bold text-neutral-600 hover:text-black border border-neutral-200 bg-white hover:bg-neutral-50 px-2 py-0.5 flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                {uploadProgressMap[`thumb-${item.id}`] === "업로드 중..." ? (
+                                  <>
+                                    <Loader2 className="w-2.5 h-2.5 animate-spin text-amber-600" />
+                                    <span>업로드 중...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Upload className="w-2.5 h-2.5 text-neutral-400" />
+                                    <span>썸네일 직접 업로드</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveUploadItemId(item.id);
+                                  setTimeout(() => videoFileInputRef.current?.click(), 50);
+                                }}
+                                className="text-[9px] font-bold text-neutral-600 hover:text-black border border-neutral-200 bg-white hover:bg-neutral-50 px-2 py-0.5 flex items-center gap-1 cursor-pointer transition-colors"
+                              >
+                                {uploadProgressMap[`video-${item.id}`] === "업로드 중..." ? (
+                                  <>
+                                    <Loader2 className="w-2.5 h-2.5 animate-spin text-amber-600" />
+                                    <span>업로드 중...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Upload className="w-2.5 h-2.5 text-neutral-400" />
+                                    <span>동영상 직접 업로드</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
                           </div>
                         </div>
 

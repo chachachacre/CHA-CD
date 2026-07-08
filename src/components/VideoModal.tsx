@@ -48,10 +48,18 @@ export default function VideoModal({ item, onClose }: VideoModalProps) {
     return match && match[1] ? match[1] : null;
   };
 
+  // Helper to parse Google Drive IDs
+  const getGoogleDriveId = (url: string) => {
+    const regExp = /(?:https?:\/\/)?(?:drive\.google\.com)\/(?:file\/d\/([a-zA-Z0-9_-]+)|open\?id=([a-zA-Z0-9_-]+))/;
+    const match = url.match(regExp);
+    return match ? (match[1] || match[2]) : null;
+  };
+
   const ytId = getYouTubeId(item.videoUrl);
   const vimeoId = getVimeoId(item.videoUrl);
+  const gdId = getGoogleDriveId(item.videoUrl);
 
-  const isEmbed = !!(ytId || vimeoId);
+  const isEmbed = !!(ytId || vimeoId || gdId);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 lg:p-10">
@@ -119,6 +127,19 @@ export default function VideoModal({ item, onClose }: VideoModalProps) {
               title={item.title}
               className="w-full h-full border-0 absolute inset-0"
               allow="autoplay; fullscreen; picture-in-picture"
+              allowFullScreen
+              onLoad={() => setLoading(false)}
+              onError={() => {
+                setLoading(false);
+                setHasError(true);
+              }}
+            />
+          ) : gdId ? (
+            <iframe
+              src={`https://drive.google.com/file/d/${gdId}/preview`}
+              title={item.title}
+              className="w-full h-full border-0 absolute inset-0"
+              allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
               onLoad={() => setLoading(false)}
               onError={() => {

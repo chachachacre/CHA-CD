@@ -23,9 +23,11 @@ import VideoModal from "./components/VideoModal";
 import AdminPanel from "./components/AdminPanel";
 import { getPDF, useMediaUrl } from "./pdfStorage";
 import { ResolvedImage } from "./components/ResolvedImage";
+import { db, syncAllPortfolioItemsToFirestore, saveContactInfoToFirestore, savePortfolioSettingsToFirestore } from "./firebase";
+import { collection, doc, onSnapshot, setDoc, query, orderBy, writeBatch } from "firebase/firestore";
 
 export default function App() {
-  // State management with localStorage persistence
+  // State management with localStorage fallback (for instant initial paint)
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>(() => {
     const saved = localStorage.getItem("cha_portfolio_items");
     return saved ? JSON.parse(saved) : initialPortfolioItems;
@@ -44,18 +46,59 @@ export default function App() {
   const [selectedVideo, setSelectedVideo] = useState<PortfolioItem | null>(null);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
 
-  // Sync state to localStorage on changes
+  // Real-time Firestore synchronization & Auto-seeding with migration
   useEffect(() => {
-    localStorage.setItem("cha_portfolio_items", JSON.stringify(portfolioItems));
-  }, [portfolioItems]);
+    const qItems = query(collection(db, "portfolio_items"), orderBy("order"));
+    const unsubscribeItems = onSnapshot(qItems, async (snapshot) => {
+      if (snapshot.empty) {
+        // Seed Firestore using existing localStorage or default data
+        const localSaved = localStorage.getItem("cha_portfolio_items");
+        const itemsToSeed = localSaved ? JSON.parse(localSaved) : initialPortfolioItems;
+        const batch = writeBatch(db);
+        itemsToSeed.forEach((item: PortfolioItem) => {
+          batch.set(doc(db, "portfolio_items", item.id), item);
+        });
+        await batch.commit();
+      } else {
+        const items: PortfolioItem[] = [];
+        snapshot.forEach((docSnap) => {
+          items.push(docSnap.data() as PortfolioItem);
+        });
+        setPortfolioItems(items);
+        localStorage.setItem("cha_portfolio_items", JSON.stringify(items));
+      }
+    });
 
-  useEffect(() => {
-    localStorage.setItem("cha_contact_info", JSON.stringify(contactInfo));
-  }, [contactInfo]);
+    const unsubscribeContact = onSnapshot(doc(db, "configs", "contact"), async (docSnap) => {
+      if (!docSnap.exists()) {
+        const localSaved = localStorage.getItem("cha_contact_info");
+        const contactToSeed = localSaved ? JSON.parse(localSaved) : initialContactInfo;
+        await setDoc(doc(db, "configs", "contact"), contactToSeed);
+      } else {
+        const contact = docSnap.data() as ContactInfo;
+        setContactInfo(contact);
+        localStorage.setItem("cha_contact_info", JSON.stringify(contact));
+      }
+    });
 
-  useEffect(() => {
-    localStorage.setItem("cha_portfolio_settings", JSON.stringify(portfolioSettings));
-  }, [portfolioSettings]);
+    const unsubscribeSettings = onSnapshot(doc(db, "configs", "settings"), async (docSnap) => {
+      if (!docSnap.exists()) {
+        const localSaved = localStorage.getItem("cha_portfolio_settings");
+        const settingsToSeed = localSaved ? JSON.parse(localSaved) : initialPortfolioSettings;
+        await setDoc(doc(db, "configs", "settings"), settingsToSeed);
+      } else {
+        const settings = docSnap.data() as PortfolioSettings;
+        setPortfolioSettings(settings);
+        localStorage.setItem("cha_portfolio_settings", JSON.stringify(settings));
+      }
+    });
+
+    return () => {
+      unsubscribeItems();
+      unsubscribeContact();
+      unsubscribeSettings();
+    };
+  }, []);
 
   const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
 
@@ -243,9 +286,9 @@ export default function App() {
               </p>
             </div>
 
-            {localPdfUrl || portfolioSettings.pdfUrl ? (
+            {portfolioSettings.pdfUrl || localPdfUrl ? (
               <a
-                href={localPdfUrl || portfolioSettings.pdfUrl}
+                href={portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("http") ? portfolioSettings.pdfUrl : (localPdfUrl || portfolioSettings.pdfUrl)}
                 download={portfolioSettings.pdfFileName}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -458,9 +501,9 @@ export default function App() {
             portfolioItems={portfolioItems}
             contactInfo={contactInfo}
             portfolioSettings={portfolioSettings}
-            onUpdateItems={setPortfolioItems}
-            onUpdateContact={setContactInfo}
-            onUpdateSettings={setPortfolioSettings}
+            onUpdateItems={syncAllPortfolioItemsToFirestore}
+            onUpdateContact={saveContactInfoToFirestore}
+            onUpdateSettings={savePortfolioSettingsToFirestore}
           />
         )}
       </AnimatePresence>
