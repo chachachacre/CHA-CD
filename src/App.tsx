@@ -109,8 +109,18 @@ export default function App() {
           console.log("Firestore configs/settings successfully seeded.");
         } else {
           const settings = docSnap.data() as PortfolioSettings;
-          setPortfolioSettings(settings);
-          localStorage.setItem("cha_portfolio_settings", JSON.stringify(settings));
+          const oldIntro = "20년 이상의 풍부한 실무 경험을 바탕으로 브랜드에 새 생명을 불어넣습니다. 디지털 미디어와 생성형 AI 광고의 한계를 뛰어넘어 혁신적인 크리에이티브 솔루션을 기획합니다. 제작 본부장이자 총괄 크리에이티브 디렉터 CHA CD입니다.";
+          if (settings.introduction === oldIntro) {
+            const updatedSettings = {
+              ...settings,
+              introduction: "좋은 광고는 예산보다 아이디어와 디렉팅에서 시작됩니다.\n실사 촬영 광고부터 AI 광고, 디지털 콘텐츠, 지면 제작까지.\n프로젝트에 가장 적합한 방식으로\n브랜드가 기대하는 그 이상의 결과를 만듭니다."
+            };
+            await setDoc(doc(db, "configs", "settings"), updatedSettings);
+            console.log("Firestore settings introduction automatically updated to the new copy.");
+          } else {
+            setPortfolioSettings(settings);
+            localStorage.setItem("cha_portfolio_settings", JSON.stringify(settings));
+          }
         }
       },
       (error) => {
@@ -215,9 +225,9 @@ export default function App() {
             </h1>
             <div className="text-xs md:text-sm text-neutral-950 font-light max-w-2xl leading-relaxed tracking-tight space-y-1.5">
               {portfolioSettings.introduction &&
-                portfolioSettings.introduction.split(/(?<=[.!?])\s+/).map((sentence, index) => (
+                portfolioSettings.introduction.split("\n").map((line, index) => (
                   <span key={index} className="block">
-                    {sentence}
+                    {line}
                   </span>
                 ))}
             </div>
@@ -228,7 +238,7 @@ export default function App() {
         <section className="space-y-6" id="works-section">
           <div className="flex items-baseline justify-between border-b border-neutral-100 pb-3">
             <h2 className="text-xs font-bold font-mono tracking-widest text-neutral-400 uppercase">
-              Featured Works ({portfolioItems.length})
+              AI Commercial Projects ({portfolioItems.length})
             </h2>
             <span className="text-[10px] text-neutral-400 font-mono hidden sm:inline">
               ※ 클릭하여 고해상도 영상을 감상하세요
@@ -320,7 +330,7 @@ export default function App() {
                 className="inline-flex items-center justify-center gap-2 bg-black hover:bg-neutral-900 text-white font-bold tracking-widest text-xs uppercase px-8 py-4.5 transition-all cursor-pointer"
                 id="portfolio-download-link"
               >
-                <span>📄 Portfolio Download</span>
+                <span>📄 TVCF · Digital Content · Print Portfolio</span>
                 <ArrowUpRight className="w-4 h-4 shrink-0 text-neutral-400" />
               </a>
             ) : (
@@ -475,7 +485,7 @@ export default function App() {
                   rel="noopener noreferrer"
                   className="text-xs font-bold border-b border-black uppercase tracking-wider hover:opacity-75 transition-opacity"
                 >
-                  PDF Download
+                  TVCF · Digital Content · Print Portfolio
                 </a>
               ) : (
                 <span className="text-xs text-neutral-400 font-bold uppercase tracking-wider">미등록</span>
