@@ -48,50 +48,75 @@ export default function App() {
 
   // Real-time Firestore synchronization & Auto-seeding with migration
   useEffect(() => {
+    console.log("Initializing Firestore real-time listeners...");
     const qItems = query(collection(db, "portfolio_items"), orderBy("order"));
-    const unsubscribeItems = onSnapshot(qItems, async (snapshot) => {
-      if (snapshot.empty) {
-        // Seed Firestore using existing localStorage or default data
-        const localSaved = localStorage.getItem("cha_portfolio_items");
-        const itemsToSeed = localSaved ? JSON.parse(localSaved) : initialPortfolioItems;
-        const batch = writeBatch(db);
-        itemsToSeed.forEach((item: PortfolioItem) => {
-          batch.set(doc(db, "portfolio_items", item.id), item);
-        });
-        await batch.commit();
-      } else {
-        const items: PortfolioItem[] = [];
-        snapshot.forEach((docSnap) => {
-          items.push(docSnap.data() as PortfolioItem);
-        });
-        setPortfolioItems(items);
-        localStorage.setItem("cha_portfolio_items", JSON.stringify(items));
+    const unsubscribeItems = onSnapshot(
+      qItems,
+      async (snapshot) => {
+        console.log("Firestore portfolio_items snapshot received. Empty:", snapshot.empty);
+        if (snapshot.empty) {
+          // Seed Firestore using existing localStorage or default data
+          const localSaved = localStorage.getItem("cha_portfolio_items");
+          const itemsToSeed = localSaved ? JSON.parse(localSaved) : initialPortfolioItems;
+          const batch = writeBatch(db);
+          itemsToSeed.forEach((item: PortfolioItem) => {
+            batch.set(doc(db, "portfolio_items", item.id), item);
+          });
+          await batch.commit();
+          console.log("Firestore successfully seeded with default items.");
+        } else {
+          const items: PortfolioItem[] = [];
+          snapshot.forEach((docSnap) => {
+            items.push(docSnap.data() as PortfolioItem);
+          });
+          setPortfolioItems(items);
+          localStorage.setItem("cha_portfolio_items", JSON.stringify(items));
+        }
+      },
+      (error) => {
+        console.error("Firestore onSnapshot error (portfolio_items):", error);
       }
-    });
+    );
 
-    const unsubscribeContact = onSnapshot(doc(db, "configs", "contact"), async (docSnap) => {
-      if (!docSnap.exists()) {
-        const localSaved = localStorage.getItem("cha_contact_info");
-        const contactToSeed = localSaved ? JSON.parse(localSaved) : initialContactInfo;
-        await setDoc(doc(db, "configs", "contact"), contactToSeed);
-      } else {
-        const contact = docSnap.data() as ContactInfo;
-        setContactInfo(contact);
-        localStorage.setItem("cha_contact_info", JSON.stringify(contact));
+    const unsubscribeContact = onSnapshot(
+      doc(db, "configs", "contact"),
+      async (docSnap) => {
+        console.log("Firestore configs/contact snapshot received. Exists:", docSnap.exists());
+        if (!docSnap.exists()) {
+          const localSaved = localStorage.getItem("cha_contact_info");
+          const contactToSeed = localSaved ? JSON.parse(localSaved) : initialContactInfo;
+          await setDoc(doc(db, "configs", "contact"), contactToSeed);
+          console.log("Firestore configs/contact successfully seeded.");
+        } else {
+          const contact = docSnap.data() as ContactInfo;
+          setContactInfo(contact);
+          localStorage.setItem("cha_contact_info", JSON.stringify(contact));
+        }
+      },
+      (error) => {
+        console.error("Firestore onSnapshot error (configs/contact):", error);
       }
-    });
+    );
 
-    const unsubscribeSettings = onSnapshot(doc(db, "configs", "settings"), async (docSnap) => {
-      if (!docSnap.exists()) {
-        const localSaved = localStorage.getItem("cha_portfolio_settings");
-        const settingsToSeed = localSaved ? JSON.parse(localSaved) : initialPortfolioSettings;
-        await setDoc(doc(db, "configs", "settings"), settingsToSeed);
-      } else {
-        const settings = docSnap.data() as PortfolioSettings;
-        setPortfolioSettings(settings);
-        localStorage.setItem("cha_portfolio_settings", JSON.stringify(settings));
+    const unsubscribeSettings = onSnapshot(
+      doc(db, "configs", "settings"),
+      async (docSnap) => {
+        console.log("Firestore configs/settings snapshot received. Exists:", docSnap.exists());
+        if (!docSnap.exists()) {
+          const localSaved = localStorage.getItem("cha_portfolio_settings");
+          const settingsToSeed = localSaved ? JSON.parse(localSaved) : initialPortfolioSettings;
+          await setDoc(doc(db, "configs", "settings"), settingsToSeed);
+          console.log("Firestore configs/settings successfully seeded.");
+        } else {
+          const settings = docSnap.data() as PortfolioSettings;
+          setPortfolioSettings(settings);
+          localStorage.setItem("cha_portfolio_settings", JSON.stringify(settings));
+        }
+      },
+      (error) => {
+        console.error("Firestore onSnapshot error (configs/settings):", error);
       }
-    });
+    );
 
     return () => {
       unsubscribeItems();
