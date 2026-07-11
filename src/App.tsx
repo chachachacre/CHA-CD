@@ -110,15 +110,21 @@ export default function App() {
         } else {
           const settings = docSnap.data() as PortfolioSettings;
           const oldIntro = "20년 이상의 풍부한 실무 경험을 바탕으로 브랜드에 새 생명을 불어넣습니다. 디지털 미디어와 생성형 AI 광고의 한계를 뛰어넘어 혁신적인 크리에이티브 솔루션을 기획합니다. 제작 본부장이자 총괄 크리에이티브 디렉터 CHA CD입니다.";
-          const fourLineIntro = "좋은 광고는 예산보다 아이디어와 디렉팅에서 시작됩니다.\n실사 촬영 광고부터 AI 광고, 디지털 콘텐츠, 지면 제작까지.\n프로젝트에 가장 적합한 방식으로\n브랜드가 기대하는 그 이상의 결과를 만듭니다.";
+          const targetIntro = "좋은 광고는 예산보다 아이디어와 디렉팅에서 시작됩니다.\n실사 촬영 광고부터 AI 광고, 디지털 콘텐츠, 지면 제작까지.\n프로젝트에 가장 적합한 방식으로 브랜드가 기대하는 그 이상의 결과를 만듭니다.";
           
-          if (settings.introduction === oldIntro || settings.introduction === fourLineIntro) {
+          if (settings.introduction !== targetIntro && 
+              (settings.introduction === oldIntro || 
+               settings.introduction.includes("예산보다") || 
+               settings.introduction.includes("디렉팅에서") ||
+               settings.introduction.includes("실사 촬영"))) {
             const updatedSettings = {
               ...settings,
-              introduction: "좋은 광고는 예산보다 아이디어와 디렉팅에서 시작됩니다.\n실사 촬영 광고부터 AI 광고, 디지털 콘텐츠, 지면 제작까지.\n프로젝트에 가장 적합한 방식으로 브랜드가 기대하는 그 이상의 결과를 만듭니다."
+              introduction: targetIntro
             };
             await setDoc(doc(db, "configs", "settings"), updatedSettings);
-            console.log("Firestore settings introduction automatically updated to the new 3-line layout.");
+            setPortfolioSettings(updatedSettings);
+            localStorage.setItem("cha_portfolio_settings", JSON.stringify(updatedSettings));
+            console.log("Firestore settings introduction automatically updated to the target 3-line layout.");
           } else {
             setPortfolioSettings(settings);
             localStorage.setItem("cha_portfolio_settings", JSON.stringify(settings));
