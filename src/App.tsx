@@ -369,7 +369,7 @@ export default function App() {
               <div className="space-y-6">
                 <div className="space-y-2">
                   <h3 className="text-2xl font-bold font-display tracking-tight leading-snug text-neutral-950">
-                    다음 프로젝트는 CHA CD와 함께하세요!
+                    다음 프로젝트는 CHA CD와 함께!!
                   </h3>
                   <p className="text-xs font-sans tracking-wide text-neutral-950 font-bold">
                     TVCF · AI Commercial · Digital Contents · OOH · Print
