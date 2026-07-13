@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, writeBatch, getDocs } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, listAll } from "firebase/storage";
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, listAll, getMetadata } from "firebase/storage";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "./types";
 import firebaseConfig from "../firebase-applet-config.json";
 
@@ -99,16 +99,43 @@ export async function syncPdfUrlToFirestore(
     }
 
     if (pdfFiles.length > 0) {
-      const fileRef = pdfFiles[0];
-      const downloadUrl = await getDownloadURL(fileRef);
-      if (settings.pdfUrl !== downloadUrl) {
-        const updated = {
-          ...settings,
-          pdfUrl: downloadUrl,
-          pdfFileName: fileRef.name,
-        };
-        await onUpdateSettings(updated);
-        return { updatedSettings: updated, changed: true };
+      // 1. If current filename is still in storage, preserve it
+      let fileRef = pdfFiles.find((item) => item.name === settings.pdfFileName);
+
+      // 2. If current filename does not exist, find the newest file in storage by updated/created time
+      if (!fileRef) {
+        try {
+          const filesWithMeta = await Promise.all(
+            pdfFiles.map(async (file) => {
+              try {
+                const meta = await getMetadata(file);
+                const timeStr = meta.updated || meta.timeCreated || "0";
+                return { file, time: new Date(timeStr).getTime() };
+              } catch {
+                return { file, time: 0 };
+              }
+            })
+          );
+          // Sort by newest first
+          filesWithMeta.sort((a, b) => b.time - a.time);
+          fileRef = filesWithMeta[0].file;
+        } catch (metaErr) {
+          console.warn("Failed to sort PDFs by metadata, falling back to first file:", metaErr);
+          fileRef = pdfFiles[0];
+        }
+      }
+
+      if (fileRef) {
+        const downloadUrl = await getDownloadURL(fileRef);
+        if (settings.pdfUrl !== downloadUrl || settings.pdfFileName !== fileRef.name) {
+          const updated = {
+            ...settings,
+            pdfUrl: downloadUrl,
+            pdfFileName: fileRef.name,
+          };
+          await onUpdateSettings(updated);
+          return { updatedSettings: updated, changed: true };
+        }
       }
     }
     return { updatedSettings: settings, changed: false };

@@ -192,6 +192,14 @@ export default function App() {
     }
   };
 
+  // Helper to prevent aggressive browser caching of PDF downloads
+  const getCacheBustedUrl = (url: string | null) => {
+    if (!url) return "";
+    if (!url.startsWith("http")) return url;
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}t=${Date.now()}`;
+  };
+
   return (
     <div className="min-h-screen bg-white text-neutral-900 selection:bg-neutral-900 selection:text-white flex flex-col justify-between">
       {/* 1. Header (Sticky Top with only PORTFOLIO and CONTACT links) */}
@@ -331,7 +339,11 @@ export default function App() {
 
             {portfolioSettings.pdfUrl || localPdfUrl ? (
               <a
-                href={portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("http") ? portfolioSettings.pdfUrl : (localPdfUrl || portfolioSettings.pdfUrl)}
+                href={getCacheBustedUrl(
+                  portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("http")
+                    ? portfolioSettings.pdfUrl
+                    : (localPdfUrl || portfolioSettings.pdfUrl)
+                )}
                 download={portfolioSettings.pdfFileName}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -487,7 +499,7 @@ export default function App() {
               <p className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold font-mono">Portfolio</p>
               {localPdfUrl || portfolioSettings.pdfUrl ? (
                 <a
-                  href={localPdfUrl || portfolioSettings.pdfUrl}
+                  href={getCacheBustedUrl(localPdfUrl || portfolioSettings.pdfUrl)}
                   download={portfolioSettings.pdfFileName}
                   target="_blank"
                   rel="noopener noreferrer"
