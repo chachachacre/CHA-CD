@@ -152,9 +152,16 @@ export default function AdminPanel({
         const item = { ...updatedItems[i] };
         let itemChanged = false;
 
-        // Migrate Thumbnail if local
-        if (item.thumbnailUrl && item.thumbnailUrl.startsWith("indexeddb:")) {
-          const key = item.thumbnailUrl.replace("indexeddb:", "");
+        // Migrate Thumbnail if not a Firebase Storage URL
+        const needsThumbUpload =
+          item.thumbnailUrl &&
+          !item.thumbnailUrl.startsWith("https://firebasestorage.googleapis.com");
+
+        if (needsThumbUpload) {
+          const key = item.thumbnailUrl?.startsWith("indexeddb:")
+            ? item.thumbnailUrl.replace("indexeddb:", "")
+            : `media_thumb_${item.id}`;
+
           setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 전송 준비 중...`);
           const file = await getMediaFile(key);
           if (file) {
@@ -163,28 +170,30 @@ export default function AdminPanel({
               const downloadUrl = await uploadToStorage(
                 `thumbnails/${item.id}_${safeName}`,
                 file,
-                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 전송 중 (${pct}%)...`)
+                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 클라우드 전송 중 (${pct}%)...`)
               );
               if (downloadUrl) {
                 item.thumbnailUrl = downloadUrl;
                 itemChanged = true;
               }
             } catch (err) {
-              console.warn(`Storage upload failed for thumbnail ${item.title}, converting to Data URL fallback:`, err);
-              try {
-                const dataUrl = await fileToDataUrl(file);
-                item.thumbnailUrl = dataUrl;
-                itemChanged = true;
-              } catch (e) {
-                console.error("Data URL conversion failed:", e);
-              }
+              console.error(`Failed to upload thumbnail to Firebase Storage for ${item.title}:`, err);
             }
           }
         }
 
-        // Migrate Video if local
-        if (item.videoUrl && item.videoUrl.startsWith("indexeddb:")) {
-          const key = item.videoUrl.replace("indexeddb:", "");
+        // Migrate Video if not a Firebase Storage URL
+        const needsVideoUpload =
+          item.videoUrl &&
+          !item.videoUrl.startsWith("https://firebasestorage.googleapis.com") &&
+          !item.videoUrl.includes("youtube.com") &&
+          !item.videoUrl.includes("vimeo.com");
+
+        if (needsVideoUpload) {
+          const key = item.videoUrl?.startsWith("indexeddb:")
+            ? item.videoUrl.replace("indexeddb:", "")
+            : `media_video_${item.id}`;
+
           setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 전송 준비 중...`);
           const file = await getMediaFile(key);
           if (file) {
@@ -193,14 +202,14 @@ export default function AdminPanel({
               const downloadUrl = await uploadToStorage(
                 `videos/${item.id}_${safeName}`,
                 file,
-                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 전송 중 (${pct}%)...`)
+                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 클라우드 전송 중 (${pct}%)...`)
               );
               if (downloadUrl) {
                 item.videoUrl = downloadUrl;
                 itemChanged = true;
               }
             } catch (err) {
-              console.error(`Failed to migrate video for ${item.title}:`, err);
+              console.error(`Failed to upload video to Firebase Storage for ${item.title}:`, err);
             }
           }
         }

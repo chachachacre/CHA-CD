@@ -1,15 +1,21 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, writeBatch, getDocs } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject, listAll, getMetadata } from "firebase/storage";
+import { getAuth, signInAnonymously } from "firebase/auth";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "./types";
 import firebaseConfig from "../firebase-applet-config.json";
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
-const rawBucket = firebaseConfig.storageBucket || "";
-const cleanBucket = rawBucket.replace(/^gs:\/\//, "");
-export const storage = cleanBucket ? getStorage(app, cleanBucket) : getStorage(app);
+export const auth = getAuth(app);
+signInAnonymously(auth).catch((err) => {
+  console.warn("Firebase Anonymous Auth notice:", err);
+});
+
+const bucketName = firebaseConfig.storageBucket || "gen-lang-client-0899791455.firebasestorage.app";
+const gsUrl = bucketName.startsWith("gs://") ? bucketName : `gs://${bucketName}`;
+export const storage = getStorage(app, gsUrl);
 
 // Convert a file to Base64 Data URL (useful for thumbnail images fallback)
 export function fileToDataUrl(file: File): Promise<string> {
@@ -164,11 +170,29 @@ export async function uploadToStorage(
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<string> {
-  const storageRef = ref(storage, path);
-  try {
-    const uploadTask = uploadBytesResumable(storageRef, file);
+  const cleanPath = path.replace(/^\//, "");
+  const storageRef = ref(storage, cleanPath);
 
-    return await new Promise<string>((resolve, reject) => {
+  if (!auth.currentUser) {
+    try {
+      await signInAnonymously(auth);
+    } catch (e) {
+      console.warn("Anonymous auth prior to upload:", e);
+    }
+  }
+
+  try {
+    if (onProgress) onProgress(30);
+    const snapshot = await uploadBytes(storageRef, file);
+    if (onProgress) onProgress(100);
+    const downloadUrl = await getDownloadURL(snapshot.ref);
+    console.log(`Firebase Storage upload successful for ${cleanPath}:`, downloadUrl);
+    return downloadUrl;
+  } catch (directErr) {
+    console.warn(`uploadBytes failed for ${cleanPath}, attempting uploadBytesResumable:`, directErr);
+    return new Promise<string>((resolve, reject) => {
+      const uploadTask = uploadBytesResumable(storageRef, file);
+
       uploadTask.on(
         "state_changed",
         (snapshot) => {
@@ -178,7 +202,7 @@ export async function uploadToStorage(
           }
         },
         (error) => {
-          console.warn("Firebase Storage uploadBytesResumable error:", error);
+          console.error("Firebase Storage Upload Failed:", error);
           reject(error);
         },
         async () => {
@@ -191,22 +215,17 @@ export async function uploadToStorage(
         }
       );
     });
-  } catch (resumableErr) {
-    console.warn("Resumable upload failed, falling back to direct uploadBytes:", resumableErr);
-    if (onProgress) onProgress(50);
-    const snapshot = await uploadBytes(storageRef, file);
-    if (onProgress) onProgress(100);
-    return await getDownloadURL(snapshot.ref);
   }
 }
 
 // Helper to delete a file from Firebase Storage
 export async function deleteFromStorage(path: string): Promise<void> {
-  const storageRef = ref(storage, path);
+  const cleanPath = path.replace(/^\//, "");
+  const storageRef = ref(storage, cleanPath);
   try {
     await deleteObject(storageRef);
   } catch (err) {
-    console.error("Failed to delete from storage:", path, err);
+    console.error("Failed to delete from storage:", cleanPath, err);
   }
 }
 
@@ -242,4 +261,5 @@ export async function saveContactInfoToFirestore(contact: ContactInfo): Promise<
 export async function savePortfolioSettingsToFirestore(settings: PortfolioSettings): Promise<void> {
   await setDoc(doc(db, "configs", "settings"), settings);
 }
+
 
