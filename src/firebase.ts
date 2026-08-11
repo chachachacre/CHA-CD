@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, setDoc, writeBatch, getDocs } from "firebase/firestore";
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, listAll, getMetadata } from "firebase/storage";
+import { getStorage, ref, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject, listAll, getMetadata } from "firebase/storage";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "./types";
 import firebaseConfig from "../firebase-applet-config.json";
 
@@ -146,11 +146,37 @@ export async function syncPdfUrlToFirestore(
 }
 
 // Helper to upload a file to Firebase Storage and get download URL
-export async function uploadToStorage(path: string, file: File): Promise<string> {
+export async function uploadToStorage(
+  path: string,
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<string> {
   const storageRef = ref(storage, path);
-  const snapshot = await uploadBytes(storageRef, file);
-  const downloadUrl = await getDownloadURL(snapshot.ref);
-  return downloadUrl;
+  return new Promise((resolve, reject) => {
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        if (onProgress && snapshot.totalBytes > 0) {
+          const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+          onProgress(percent);
+        }
+      },
+      (error) => {
+        console.error("Firebase Storage Upload Error:", error);
+        reject(error);
+      },
+      async () => {
+        try {
+          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          resolve(downloadUrl);
+        } catch (err) {
+          reject(err);
+        }
+      }
+    );
+  });
 }
 
 // Helper to delete a file from Firebase Storage

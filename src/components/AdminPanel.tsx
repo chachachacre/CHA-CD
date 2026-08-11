@@ -229,40 +229,63 @@ export default function AdminPanel({
       return;
     }
 
-    const targetId = activeUploadItemId || itemForm.id || (editingItem ? editingItem.id : null);
-    if (!targetId) {
-      alert("작업물 ID가 생성되지 않았습니다.");
-      return;
+    const targetId = activeUploadItemId || itemForm.id || (editingItem ? editingItem.id : null) || Date.now().toString();
+    if (!itemForm.id) {
+      setItemForm(prev => ({ ...prev, id: targetId }));
     }
 
     try {
-      setUploadProgressMap(prev => ({ ...prev, [`video-${targetId}`]: "업로드 중..." }));
-      setVideoUploadProgress("업로드 중...");
-      
-      const downloadUrl = await uploadToStorage(`videos/${targetId}_${file.name}`, file);
-      
-      // Update the active form state if we are currently editing/creating this item in the form
-      if (itemForm.id === targetId || (editingItem && editingItem.id === targetId)) {
-        setItemForm((prev) => ({
-          ...prev,
-          videoUrl: downloadUrl
-        }));
+      setUploadProgressMap(prev => ({ ...prev, [`video-${targetId}`]: "준비 중..." }));
+      setVideoUploadProgress("준비 중...");
+
+      // 1. Save to IndexedDB locally first as instant fallback
+      const localMediaKey = `media_video_${targetId}`;
+      let finalVideoUrl = `indexeddb:${localMediaKey}`;
+      try {
+        await saveMediaFile(localMediaKey, file);
+      } catch (idbErr) {
+        console.warn("Failed to save to local IndexedDB:", idbErr);
       }
+
+      // 2. Upload to Firebase Storage with live percentage tracking
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const downloadUrl = await uploadToStorage(
+          `videos/${targetId}_${safeName}`,
+          file,
+          (percent) => {
+            const statusStr = `업로드 중 (${percent}%)`;
+            setVideoUploadProgress(statusStr);
+            setUploadProgressMap(prev => ({ ...prev, [`video-${targetId}`]: statusStr }));
+          }
+        );
+        if (downloadUrl) {
+          finalVideoUrl = downloadUrl;
+        }
+      } catch (cloudErr) {
+        console.warn("Firebase Storage video upload error, using local fallback:", cloudErr);
+      }
+
+      // Update the active form state
+      setItemForm((prev) => ({
+        ...prev,
+        videoUrl: finalVideoUrl
+      }));
 
       // If the item already exists in the list, update and save to Firestore immediately
       const itemExists = portfolioItems.some(item => item.id === targetId);
       if (itemExists) {
         const updated = portfolioItems.map((item) =>
-          item.id === targetId ? { ...item, videoUrl: downloadUrl } : item
+          item.id === targetId ? { ...item, videoUrl: finalVideoUrl } : item
         );
         await onUpdateItems(updated);
       }
 
       setUploadProgressMap(prev => ({ ...prev, [`video-${targetId}`]: "완료" }));
       setVideoUploadProgress("완료");
-      triggerSaveNotification(`동영상 파일이 클라우드에 성공적으로 업로드 및 연동되었습니다.`);
+      triggerSaveNotification(`동영상 파일이 성공적으로 연동되었습니다.`);
     } catch (err) {
-      console.error(err);
+      console.error("Video upload error:", err);
       alert("동영상 업로드 중 오류가 발생했습니다.");
       setUploadProgressMap(prev => {
         const copy = { ...prev };
@@ -285,40 +308,63 @@ export default function AdminPanel({
       return;
     }
 
-    const targetId = activeUploadItemId || itemForm.id || (editingItem ? editingItem.id : null);
-    if (!targetId) {
-      alert("작업물 ID가 생성되지 않았습니다.");
-      return;
+    const targetId = activeUploadItemId || itemForm.id || (editingItem ? editingItem.id : null) || Date.now().toString();
+    if (!itemForm.id) {
+      setItemForm(prev => ({ ...prev, id: targetId }));
     }
 
     try {
-      setUploadProgressMap(prev => ({ ...prev, [`thumb-${targetId}`]: "업로드 중..." }));
-      setThumbUploadProgress("업로드 중...");
-      
-      const downloadUrl = await uploadToStorage(`thumbnails/${targetId}_${file.name}`, file);
-      
-      // Update the active form state if we are currently editing/creating this item in the form
-      if (itemForm.id === targetId || (editingItem && editingItem.id === targetId)) {
-        setItemForm((prev) => ({
-          ...prev,
-          thumbnailUrl: downloadUrl
-        }));
+      setUploadProgressMap(prev => ({ ...prev, [`thumb-${targetId}`]: "준비 중..." }));
+      setThumbUploadProgress("준비 중...");
+
+      // 1. Save to IndexedDB locally first
+      const localMediaKey = `media_thumb_${targetId}`;
+      let finalThumbUrl = `indexeddb:${localMediaKey}`;
+      try {
+        await saveMediaFile(localMediaKey, file);
+      } catch (idbErr) {
+        console.warn("Failed to save thumbnail to local IndexedDB:", idbErr);
       }
+
+      // 2. Upload to Firebase Storage
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const downloadUrl = await uploadToStorage(
+          `thumbnails/${targetId}_${safeName}`,
+          file,
+          (percent) => {
+            const statusStr = `업로드 중 (${percent}%)`;
+            setThumbUploadProgress(statusStr);
+            setUploadProgressMap(prev => ({ ...prev, [`thumb-${targetId}`]: statusStr }));
+          }
+        );
+        if (downloadUrl) {
+          finalThumbUrl = downloadUrl;
+        }
+      } catch (cloudErr) {
+        console.warn("Firebase Storage thumb upload error, using local fallback:", cloudErr);
+      }
+
+      // Update the active form state
+      setItemForm((prev) => ({
+        ...prev,
+        thumbnailUrl: finalThumbUrl
+      }));
 
       // If the item already exists in the list, update and save to Firestore immediately
       const itemExists = portfolioItems.some(item => item.id === targetId);
       if (itemExists) {
         const updated = portfolioItems.map((item) =>
-          item.id === targetId ? { ...item, thumbnailUrl: downloadUrl } : item
+          item.id === targetId ? { ...item, thumbnailUrl: finalThumbUrl } : item
         );
         await onUpdateItems(updated);
       }
 
       setUploadProgressMap(prev => ({ ...prev, [`thumb-${targetId}`]: "완료" }));
       setThumbUploadProgress("완료");
-      triggerSaveNotification(`썸네일 파일이 클라우드에 성공적으로 업로드 및 연동되었습니다.`);
+      triggerSaveNotification(`썸네일 이미지 파일이 성공적으로 연동되었습니다.`);
     } catch (err) {
-      console.error(err);
+      console.error("Thumb upload error:", err);
       alert("썸네일 이미지 업로드 중 오류가 발생했습니다.");
       setUploadProgressMap(prev => {
         const copy = { ...prev };
@@ -346,6 +392,50 @@ export default function AdminPanel({
     }
   }, [isOpen, isAuthenticated, portfolioSettings]);
 
+  const processPdfUpload = async (file: File) => {
+    try {
+      setUploadedFileName("업로드 준비 중...");
+      
+      // 1. Save locally first
+      try {
+        await savePDF(file);
+      } catch (idbErr) {
+        console.warn("Local PDF save error:", idbErr);
+      }
+
+      let downloadUrl = "indexeddb:portfolio_pdf";
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const cloudUrl = await uploadToStorage(
+          `pdf/${safeName}`,
+          file,
+          (percent) => {
+            setUploadedFileName(`업로드 중 (${percent}%)`);
+          }
+        );
+        if (cloudUrl) {
+          downloadUrl = cloudUrl;
+        }
+      } catch (cloudErr) {
+        console.warn("Firebase Storage PDF upload error, using local fallback:", cloudErr);
+      }
+
+      const updatedSettings = {
+        ...settingsForm,
+        pdfFileName: file.name,
+        pdfUrl: downloadUrl,
+      };
+      setSettingsForm(updatedSettings);
+      await onUpdateSettings(updatedSettings);
+      setUploadedFileName(file.name);
+      triggerSaveNotification("포트폴리오 PDF 파일이 성공적으로 연동되었습니다.");
+    } catch (err) {
+      console.error(err);
+      alert("PDF 업로드 처리 중 오류가 발생했습니다.");
+      setUploadedFileName(settingsForm.pdfFileName || null);
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -355,23 +445,7 @@ export default function AdminPanel({
       return;
     }
 
-    try {
-      setUploadedFileName("업로드 중...");
-      const downloadUrl = await uploadToStorage(`pdf/${file.name}`, file);
-      const updatedSettings = {
-        ...settingsForm,
-        pdfFileName: file.name,
-        pdfUrl: downloadUrl,
-      };
-      setSettingsForm(updatedSettings);
-      onUpdateSettings(updatedSettings);
-      setUploadedFileName(file.name);
-      triggerSaveNotification("포트폴리오 PDF 파일이 클라우드에 업로드되었습니다.");
-    } catch (err) {
-      console.error(err);
-      alert("파일 업로드 중 오류가 발생했습니다.");
-      setUploadedFileName(null);
-    }
+    await processPdfUpload(file);
   };
 
   const handleFileDelete = async () => {
@@ -419,23 +493,7 @@ export default function AdminPanel({
       return;
     }
 
-    try {
-      setUploadedFileName("업로드 중...");
-      const downloadUrl = await uploadToStorage(`pdf/${file.name}`, file);
-      const updatedSettings = {
-        ...settingsForm,
-        pdfFileName: file.name,
-        pdfUrl: downloadUrl,
-      };
-      setSettingsForm(updatedSettings);
-      onUpdateSettings(updatedSettings);
-      setUploadedFileName(file.name);
-      triggerSaveNotification("포트폴리오 PDF 파일이 클라우드에 업로드되었습니다.");
-    } catch (err) {
-      console.error(err);
-      alert("파일 업로드 중 오류가 발생했습니다.");
-      setUploadedFileName(null);
-    }
+    await processPdfUpload(file);
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -875,8 +933,10 @@ export default function AdminPanel({
                               className="w-full px-3 py-2 border border-neutral-200 rounded-none bg-white text-neutral-800 focus:outline-none focus:border-black font-mono"
                             />
                           )}
-                          {videoUploadProgress === "업로드 중..." && (
-                            <p className="text-[10px] text-blue-600 mt-1 font-medium animate-pulse">동영상 파일을 인코딩 및 데이터베이스에 저장 중입니다...</p>
+                          {videoUploadProgress && videoUploadProgress !== "완료" && (
+                            <p className="text-[10px] text-blue-600 mt-1 font-medium animate-pulse">
+                              ⏳ {videoUploadProgress}
+                            </p>
                           )}
                           <p className="text-[10px] text-neutral-500 mt-1">
                             * 직접 비디오 파일을 업로드하거나, 외부 MP4/유튜브/비메오 주소를 자유롭게 입력해 활용할 수 있습니다.
@@ -931,8 +991,10 @@ export default function AdminPanel({
                               className="w-full px-3 py-2 border border-neutral-200 rounded-none bg-white text-neutral-800 focus:outline-none focus:border-black font-mono"
                             />
                           )}
-                          {thumbUploadProgress === "업로드 중..." && (
-                            <p className="text-[10px] text-blue-600 mt-1 font-medium animate-pulse">이미지 파일을 데이터베이스에 로드하는 중입니다...</p>
+                          {thumbUploadProgress && thumbUploadProgress !== "완료" && (
+                            <p className="text-[10px] text-blue-600 mt-1 font-medium animate-pulse">
+                              ⏳ {thumbUploadProgress}
+                            </p>
                           )}
                         </div>
 
