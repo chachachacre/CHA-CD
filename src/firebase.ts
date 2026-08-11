@@ -179,41 +179,32 @@ export async function uploadToStorage(
     }
   }
 
-  try {
-    if (onProgress) onProgress(30);
-    const snapshot = await uploadBytes(storageRef, file);
-    if (onProgress) onProgress(100);
-    const downloadUrl = await getDownloadURL(snapshot.ref);
-    console.log(`Firebase Storage upload successful for ${cleanPath}:`, downloadUrl);
-    return downloadUrl;
-  } catch (directErr) {
-    console.warn(`uploadBytes failed for ${cleanPath}, attempting uploadBytesResumable:`, directErr);
-    return new Promise<string>((resolve, reject) => {
-      const uploadTask = uploadBytesResumable(storageRef, file);
+  return new Promise<string>((resolve, reject) => {
+    const uploadTask = uploadBytesResumable(storageRef, file);
 
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          if (onProgress && snapshot.totalBytes > 0) {
-            const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-            onProgress(percent);
-          }
-        },
-        (error) => {
-          console.error("Firebase Storage Upload Failed:", error);
-          reject(error);
-        },
-        async () => {
-          try {
-            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-            resolve(downloadUrl);
-          } catch (err) {
-            reject(err);
-          }
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        if (onProgress && snapshot.totalBytes > 0) {
+          const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+          onProgress(percent);
         }
-      );
-    });
-  }
+      },
+      (error) => {
+        console.error("Firebase Storage Upload Failed:", error);
+        reject(error);
+      },
+      async () => {
+        try {
+          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          console.log(`Firebase Storage upload successful for ${cleanPath}:`, downloadUrl);
+          resolve(downloadUrl);
+        } catch (err) {
+          reject(err);
+        }
+      }
+    );
+  });
 }
 
 // Helper to delete a file from Firebase Storage

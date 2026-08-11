@@ -216,7 +216,7 @@ export default function AdminPanel({
           const item = { ...updatedItems[itemIdx] };
           let singleChanged = false;
 
-          // Fast 15-second timeout per upload attempt to prevent stalling
+          // Generous 180-second (3-minute) timeout per large file upload to prevent premature abortion
           const uploadWithTimeout = async (
             pathStr: string,
             fileObj: File,
@@ -225,7 +225,7 @@ export default function AdminPanel({
             try {
               const uploadPromise = uploadToStorage(pathStr, fileObj, onProgress);
               const timeoutPromise = new Promise<null>((resolve) =>
-                setTimeout(() => resolve(null), 15000)
+                setTimeout(() => resolve(null), 180000)
               );
               return await Promise.race([uploadPromise, timeoutPromise]);
             } catch (err) {
@@ -260,9 +260,17 @@ export default function AdminPanel({
                 if (downloadUrl) {
                   item.thumbnailUrl = downloadUrl;
                   singleChanged = true;
+                } else {
+                  console.warn(`Thumbnail upload timed out or failed for ${item.title}, resetting URL`);
+                  const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
+                  item.thumbnailUrl = defaultItem ? defaultItem.thumbnailUrl : "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800";
+                  singleChanged = true;
                 }
               } catch (err) {
                 console.error(`Thumbnail upload failed for ${item.title}:`, err);
+                const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
+                item.thumbnailUrl = defaultItem ? defaultItem.thumbnailUrl : "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800";
+                singleChanged = true;
               }
             } else {
               console.warn(`Local thumbnail file missing for ${item.title}, resetting URL`);
@@ -298,9 +306,17 @@ export default function AdminPanel({
                 if (downloadUrl) {
                   item.videoUrl = downloadUrl;
                   singleChanged = true;
+                } else {
+                  console.warn(`Video upload timed out or failed for ${item.title}, resetting URL`);
+                  const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
+                  item.videoUrl = defaultItem ? defaultItem.videoUrl : "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4";
+                  singleChanged = true;
                 }
               } catch (err) {
                 console.error(`Video upload failed for ${item.title}:`, err);
+                const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
+                item.videoUrl = defaultItem ? defaultItem.videoUrl : "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4";
+                singleChanged = true;
               }
             } else {
               console.warn(`Local video file missing for ${item.title}, resetting URL`);
