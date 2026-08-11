@@ -13,9 +13,7 @@ signInAnonymously(auth).catch((err) => {
   console.warn("Firebase Anonymous Auth notice:", err);
 });
 
-const bucketName = firebaseConfig.storageBucket || "gen-lang-client-0899791455.firebasestorage.app";
-const gsUrl = bucketName.startsWith("gs://") ? bucketName : `gs://${bucketName}`;
-export const storage = getStorage(app, gsUrl);
+export const storage = getStorage(app);
 
 // Convert a file to Base64 Data URL (useful for thumbnail images fallback)
 export function fileToDataUrl(file: File): Promise<string> {
@@ -30,7 +28,7 @@ export function fileToDataUrl(file: File): Promise<string> {
 // Sync existing storage files to portfolio items and settings automatically
 export async function syncStorageUrlsToFirestore(
   items: PortfolioItem[],
-  onUpdateItems: (items: PortfolioItem[]) => Promise<void>
+  onUpdateItems: (items: PortfolioItem[]) => Promise<void> | void
 ): Promise<{ updatedItems: PortfolioItem[]; count: number }> {
   try {
     const videosRef = ref(storage, "videos");
@@ -105,7 +103,7 @@ export async function syncStorageUrlsToFirestore(
 // Sync PDF files from storage
 export async function syncPdfUrlToFirestore(
   settings: PortfolioSettings,
-  onUpdateSettings: (settings: PortfolioSettings) => Promise<void>
+  onUpdateSettings: (settings: PortfolioSettings) => Promise<void> | void
 ): Promise<{ updatedSettings: PortfolioSettings; changed: boolean }> {
   try {
     const pdfRef = ref(storage, "pdf");

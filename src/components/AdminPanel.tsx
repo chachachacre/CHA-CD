@@ -24,6 +24,7 @@ import {
   Loader2
 } from "lucide-react";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "../types";
+import { initialPortfolioItems } from "../data";
 import { savePDF, getPDF, deletePDF, saveMediaFile, getMediaFile, deleteMediaFile, useMediaUrl } from "../pdfStorage";
 import { ResolvedImage } from "./ResolvedImage";
 import { uploadToStorage, deleteFromStorage, syncStorageUrlsToFirestore, syncPdfUrlToFirestore, fileToDataUrl } from "../firebase";
@@ -120,6 +121,33 @@ export default function AdminPanel({
       await handleAutoSyncStorage(true).catch(() => {});
 
       let updatedSettings = { ...portfolioSettings };
+
+      const getAssetFile = async (urlOrKey: string, fallbackKey?: string, defaultFileName = "file"): Promise<File | null> => {
+        if (!urlOrKey) return null;
+        if (urlOrKey.startsWith("indexeddb:")) {
+          const key = urlOrKey.replace("indexeddb:", "");
+          const file = await getMediaFile(key);
+          if (file) return file;
+        }
+        if (fallbackKey) {
+          const file = await getMediaFile(fallbackKey);
+          if (file) return file;
+        }
+        if (urlOrKey.startsWith("data:") || urlOrKey.startsWith("blob:")) {
+          try {
+            const res = await fetch(urlOrKey);
+            const blob = await res.blob();
+            const mime = blob.type || "application/octet-stream";
+            const ext = mime.split("/")[1]?.split(";")[0] || "bin";
+            return new File([blob], `${defaultFileName}.${ext}`, { type: mime });
+          } catch (e) {
+            console.warn("Failed to convert data/blob URL to File:", e);
+          }
+        }
+        return null;
+      };
+
+      // 1. PDF Migration
       const isPdfLocal =
         portfolioSettings.pdfUrl === "local_indexeddb" ||
         (portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("indexeddb:"));
@@ -128,104 +156,129 @@ export default function AdminPanel({
         setMigrationStatus("포트폴리오 PDF 파일 클라우드 전송 중...");
         const pdfFile = await getPDF();
         if (pdfFile) {
-          const safeName = pdfFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-          const downloadUrl = await uploadToStorage(
-            `pdf/${safeName}`,
-            pdfFile,
-            (pct) => setMigrationStatus(`포트폴리오 PDF 전송 중 (${pct}%)...`)
-          );
-          if (downloadUrl) {
-            updatedSettings = {
-              ...updatedSettings,
-              pdfUrl: downloadUrl,
-              pdfFileName: pdfFile.name,
-            };
+          try {
+            const safeName = pdfFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+            const downloadUrl = await uploadToStorage(
+              `pdf/${safeName}`,
+              pdfFile,
+              (pct) => setMigrationStatus(`포트폴리오 PDF 전송 중 (${pct}%)...`)
+            );
+            if (downloadUrl) {
+              updatedSettings = {
+                ...updatedSettings,
+                pdfUrl: downloadUrl,
+                pdfFileName: pdfFile.name,
+              };
+              await onUpdateSettings(updatedSettings);
+            }
+          } catch (pdfErr) {
+            console.error("PDF upload error during migration:", pdfErr);
+          }
+        } else {
+          const synced = await syncPdfUrlToFirestore(updatedSettings, onUpdateSettings);
+          if (!synced.changed) {
+            updatedSettings.pdfUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
             await onUpdateSettings(updatedSettings);
           }
         }
       }
 
+      // 2. Portfolio Items Migration (Thumbnails & Videos)
       const updatedItems = [...portfolioItems];
-      let hasChange = false;
+      let itemsChanged = false;
 
       for (let i = 0; i < updatedItems.length; i++) {
         const item = { ...updatedItems[i] };
-        let itemChanged = false;
+        let singleChanged = false;
 
-        // Migrate Thumbnail if not a Firebase Storage URL
-        const needsThumbUpload =
+        // --- Thumbnail Migration ---
+        const thumbIsLocal =
           item.thumbnailUrl &&
-          !item.thumbnailUrl.startsWith("https://firebasestorage.googleapis.com");
+          (item.thumbnailUrl.startsWith("indexeddb:") ||
+           item.thumbnailUrl.startsWith("data:") ||
+           item.thumbnailUrl.startsWith("blob:"));
 
-        if (needsThumbUpload) {
-          const key = item.thumbnailUrl?.startsWith("indexeddb:")
-            ? item.thumbnailUrl.replace("indexeddb:", "")
-            : `media_thumb_${item.id}`;
+        if (thumbIsLocal) {
+          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 준비 중...`);
+          const thumbFile = await getAssetFile(
+            item.thumbnailUrl!,
+            `media_thumb_${item.id}`,
+            `thumb_${item.id}`
+          );
 
-          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 전송 준비 중...`);
-          const file = await getMediaFile(key);
-          if (file) {
+          if (thumbFile) {
             try {
-              const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+              const safeName = thumbFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
               const downloadUrl = await uploadToStorage(
                 `thumbnails/${item.id}_${safeName}`,
-                file,
-                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 클라우드 전송 중 (${pct}%)...`)
+                thumbFile,
+                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 전송 중 (${pct}%)...`)
               );
               if (downloadUrl) {
                 item.thumbnailUrl = downloadUrl;
-                itemChanged = true;
+                singleChanged = true;
               }
             } catch (err) {
-              console.error(`Failed to upload thumbnail to Firebase Storage for ${item.title}:`, err);
+              console.error(`Thumbnail upload failed for ${item.title}:`, err);
             }
+          } else {
+            console.warn(`Local thumbnail file missing for ${item.title}, resetting URL`);
+            const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
+            item.thumbnailUrl = defaultItem ? defaultItem.thumbnailUrl : "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800";
+            singleChanged = true;
           }
         }
 
-        // Migrate Video if not a Firebase Storage URL
-        const needsVideoUpload =
+        // --- Video Migration ---
+        const videoIsLocal =
           item.videoUrl &&
-          !item.videoUrl.startsWith("https://firebasestorage.googleapis.com") &&
-          !item.videoUrl.includes("youtube.com") &&
-          !item.videoUrl.includes("vimeo.com");
+          (item.videoUrl.startsWith("indexeddb:") ||
+           item.videoUrl.startsWith("data:") ||
+           item.videoUrl.startsWith("blob:"));
 
-        if (needsVideoUpload) {
-          const key = item.videoUrl?.startsWith("indexeddb:")
-            ? item.videoUrl.replace("indexeddb:", "")
-            : `media_video_${item.id}`;
+        if (videoIsLocal) {
+          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 준비 중...`);
+          const videoFile = await getAssetFile(
+            item.videoUrl!,
+            `media_video_${item.id}`,
+            `video_${item.id}`
+          );
 
-          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 전송 준비 중...`);
-          const file = await getMediaFile(key);
-          if (file) {
+          if (videoFile) {
             try {
-              const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+              const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
               const downloadUrl = await uploadToStorage(
                 `videos/${item.id}_${safeName}`,
-                file,
-                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 클라우드 전송 중 (${pct}%)...`)
+                videoFile,
+                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 전송 중 (${pct}%)...`)
               );
               if (downloadUrl) {
                 item.videoUrl = downloadUrl;
-                itemChanged = true;
+                singleChanged = true;
               }
             } catch (err) {
-              console.error(`Failed to upload video to Firebase Storage for ${item.title}:`, err);
+              console.error(`Video upload failed for ${item.title}:`, err);
             }
+          } else {
+            console.warn(`Local video file missing for ${item.title}, resetting URL`);
+            const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
+            item.videoUrl = defaultItem ? defaultItem.videoUrl : "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4";
+            singleChanged = true;
           }
         }
 
-        if (itemChanged) {
+        if (singleChanged) {
           updatedItems[i] = item;
-          hasChange = true;
+          itemsChanged = true;
         }
       }
 
-      if (hasChange) {
+      if (itemsChanged) {
         setMigrationStatus("클라우드 데이터베이스 최신화 중...");
         await onUpdateItems(updatedItems);
       }
 
-      // Final auto-sync check
+      // Final auto-sync pass
       await handleAutoSyncStorage(true).catch(() => {});
 
       triggerSaveNotification("모든 자산이 클라우드로 완벽히 전송 및 모바일 연동되었습니다! 🎉");
