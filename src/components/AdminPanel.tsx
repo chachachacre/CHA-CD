@@ -187,101 +187,143 @@ export default function AdminPanel({
       const updatedItems = [...portfolioItems];
       let itemsChanged = false;
 
-      for (let i = 0; i < updatedItems.length; i++) {
-        const item = { ...updatedItems[i] };
-        let singleChanged = false;
-
-        // --- Thumbnail Migration ---
+      // Filter items that actually need cloud migration (local IndexedDB, Data URL, Blob)
+      const pendingIndices: number[] = [];
+      updatedItems.forEach((item, idx) => {
         const thumbIsLocal =
           item.thumbnailUrl &&
           (item.thumbnailUrl.startsWith("indexeddb:") ||
            item.thumbnailUrl.startsWith("data:") ||
            item.thumbnailUrl.startsWith("blob:"));
-
-        if (thumbIsLocal) {
-          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 준비 중...`);
-          const thumbFile = await getAssetFile(
-            item.thumbnailUrl!,
-            `media_thumb_${item.id}`,
-            `thumb_${item.id}`
-          );
-
-          if (thumbFile) {
-            try {
-              const safeName = thumbFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-              const downloadUrl = await uploadToStorage(
-                `thumbnails/${item.id}_${safeName}`,
-                thumbFile,
-                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 전송 중 (${pct}%)...`)
-              );
-              if (downloadUrl) {
-                item.thumbnailUrl = downloadUrl;
-                singleChanged = true;
-              }
-            } catch (err) {
-              console.error(`Thumbnail upload failed for ${item.title}:`, err);
-            }
-          } else {
-            console.warn(`Local thumbnail file missing for ${item.title}, resetting URL`);
-            const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
-            item.thumbnailUrl = defaultItem ? defaultItem.thumbnailUrl : "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800";
-            singleChanged = true;
-          }
-        }
-
-        // --- Video Migration ---
         const videoIsLocal =
           item.videoUrl &&
           (item.videoUrl.startsWith("indexeddb:") ||
            item.videoUrl.startsWith("data:") ||
            item.videoUrl.startsWith("blob:"));
 
-        if (videoIsLocal) {
-          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 준비 중...`);
-          const videoFile = await getAssetFile(
-            item.videoUrl!,
-            `media_video_${item.id}`,
-            `video_${item.id}`
-          );
+        if (thumbIsLocal || videoIsLocal) {
+          pendingIndices.push(idx);
+        }
+      });
 
-          if (videoFile) {
+      if (pendingIndices.length === 0) {
+        setMigrationStatus("모든 자산이 이미 클라우드에 등록되어 있습니다.");
+      } else {
+        setMigrationStatus(`총 ${pendingIndices.length}개의 미연동 파일을 클라우드로 전송합니다...`);
+
+        for (let pIdx = 0; pIdx < pendingIndices.length; pIdx++) {
+          const itemIdx = pendingIndices[pIdx];
+          const item = { ...updatedItems[itemIdx] };
+          let singleChanged = false;
+
+          // Fast 15-second timeout per upload attempt to prevent stalling
+          const uploadWithTimeout = async (
+            pathStr: string,
+            fileObj: File,
+            onProgress: (pct: number) => void
+          ): Promise<string | null> => {
             try {
-              const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-              const downloadUrl = await uploadToStorage(
-                `videos/${item.id}_${safeName}`,
-                videoFile,
-                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 전송 중 (${pct}%)...`)
+              const uploadPromise = uploadToStorage(pathStr, fileObj, onProgress);
+              const timeoutPromise = new Promise<null>((resolve) =>
+                setTimeout(() => resolve(null), 15000)
               );
-              if (downloadUrl) {
-                item.videoUrl = downloadUrl;
-                singleChanged = true;
-              }
+              return await Promise.race([uploadPromise, timeoutPromise]);
             } catch (err) {
-              console.error(`Video upload failed for ${item.title}:`, err);
+              console.warn("Upload exception:", err);
+              return null;
             }
-          } else {
-            console.warn(`Local video file missing for ${item.title}, resetting URL`);
-            const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
-            item.videoUrl = defaultItem ? defaultItem.videoUrl : "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4";
-            singleChanged = true;
+          };
+
+          // --- Thumbnail Migration ---
+          const thumbIsLocal =
+            item.thumbnailUrl &&
+            (item.thumbnailUrl.startsWith("indexeddb:") ||
+             item.thumbnailUrl.startsWith("data:") ||
+             item.thumbnailUrl.startsWith("blob:"));
+
+          if (thumbIsLocal) {
+            setMigrationStatus(`[${pIdx + 1}/${pendingIndices.length}] ${item.title} 썸네일 전송 준비 중...`);
+            const thumbFile = await getAssetFile(
+              item.thumbnailUrl!,
+              `media_thumb_${item.id}`,
+              `thumb_${item.id}`
+            );
+
+            if (thumbFile) {
+              try {
+                const safeName = thumbFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+                const downloadUrl = await uploadWithTimeout(
+                  `thumbnails/${item.id}_${safeName}`,
+                  thumbFile,
+                  (pct) => setMigrationStatus(`[${pIdx + 1}/${pendingIndices.length}] ${item.title} 썸네일 전송 중 (${pct}%)...`)
+                );
+                if (downloadUrl) {
+                  item.thumbnailUrl = downloadUrl;
+                  singleChanged = true;
+                }
+              } catch (err) {
+                console.error(`Thumbnail upload failed for ${item.title}:`, err);
+              }
+            } else {
+              console.warn(`Local thumbnail file missing for ${item.title}, resetting URL`);
+              const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
+              item.thumbnailUrl = defaultItem ? defaultItem.thumbnailUrl : "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800";
+              singleChanged = true;
+            }
+          }
+
+          // --- Video Migration ---
+          const videoIsLocal =
+            item.videoUrl &&
+            (item.videoUrl.startsWith("indexeddb:") ||
+             item.videoUrl.startsWith("data:") ||
+             item.videoUrl.startsWith("blob:"));
+
+          if (videoIsLocal) {
+            setMigrationStatus(`[${pIdx + 1}/${pendingIndices.length}] ${item.title} 동영상 전송 준비 중...`);
+            const videoFile = await getAssetFile(
+              item.videoUrl!,
+              `media_video_${item.id}`,
+              `video_${item.id}`
+            );
+
+            if (videoFile) {
+              try {
+                const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+                const downloadUrl = await uploadWithTimeout(
+                  `videos/${item.id}_${safeName}`,
+                  videoFile,
+                  (pct) => setMigrationStatus(`[${pIdx + 1}/${pendingIndices.length}] ${item.title} 동영상 전송 중 (${pct}%)...`)
+                );
+                if (downloadUrl) {
+                  item.videoUrl = downloadUrl;
+                  singleChanged = true;
+                }
+              } catch (err) {
+                console.error(`Video upload failed for ${item.title}:`, err);
+              }
+            } else {
+              console.warn(`Local video file missing for ${item.title}, resetting URL`);
+              const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
+              item.videoUrl = defaultItem ? defaultItem.videoUrl : "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4";
+              singleChanged = true;
+            }
+          }
+
+          if (singleChanged) {
+            updatedItems[itemIdx] = item;
+            itemsChanged = true;
+            // CRITICAL: Save to Firestore IMMEDIATELY after each item is migrated!
+            // This prevents lost progress if subsequent items fail or time out.
+            await onUpdateItems([...updatedItems]);
           }
         }
-
-        if (singleChanged) {
-          updatedItems[i] = item;
-          itemsChanged = true;
-        }
-      }
-
-      if (itemsChanged) {
-        setMigrationStatus("클라우드 데이터베이스 최신화 중...");
-        await onUpdateItems(updatedItems);
       }
 
       // Final auto-sync pass
       await handleAutoSyncStorage(true).catch(() => {});
 
-      triggerSaveNotification("모든 자산이 클라우드로 완벽히 전송 및 모바일 연동되었습니다! 🎉");
+      triggerSaveNotification("클라우드 전송 및 모바일 연동 작업이 완료되었습니다! 🎉");
       setMigrationStatus("");
     } catch (err) {
       console.error("Migration failed:", err);
@@ -289,6 +331,129 @@ export default function AdminPanel({
     } finally {
       setIsMigrating(false);
     }
+  };
+
+  // Helper to retrieve local file from IndexedDB, data URL, or blob
+  const retrieveLocalFile = async (urlStr: string, fallbackKey: string, defaultName = "file"): Promise<File | null> => {
+    if (!urlStr) return null;
+    if (urlStr.startsWith("indexeddb:")) {
+      const key = urlStr.replace("indexeddb:", "");
+      const file = await getMediaFile(key);
+      if (file) return file;
+    }
+    const fallbackFile = await getMediaFile(fallbackKey);
+    if (fallbackFile) return fallbackFile;
+
+    if (urlStr.startsWith("data:") || urlStr.startsWith("blob:")) {
+      try {
+        const res = await fetch(urlStr);
+        const blob = await res.blob();
+        const mime = blob.type || "application/octet-stream";
+        const ext = mime.split("/")[1]?.split(";")[0] || "bin";
+        return new File([blob], `${defaultName}.${ext}`, { type: mime });
+      } catch (e) {
+        console.warn("Failed to convert blob/data URL to File:", e);
+      }
+    }
+    return null;
+  };
+
+  // Upload ONLY a single item to Cloud Storage directly
+  const handleSingleItemCloudUpload = async (itemToSync: PortfolioItem) => {
+    if (isMigrating) return;
+    setIsMigrating(true);
+    setMigrationStatus(`'${itemToSync.title}' 단일 파일 클라우드 전송 중...`);
+
+    try {
+      const updatedItems = [...portfolioItems];
+      const itemIdx = updatedItems.findIndex(i => i.id === itemToSync.id);
+      if (itemIdx === -1) return;
+
+      const item = { ...updatedItems[itemIdx] };
+      let changed = false;
+
+      // 1. Thumbnail
+      const isThumbLocal = item.thumbnailUrl && (
+        item.thumbnailUrl.startsWith("indexeddb:") ||
+        item.thumbnailUrl.startsWith("data:") ||
+        item.thumbnailUrl.startsWith("blob:")
+      );
+      if (isThumbLocal) {
+        setMigrationStatus(`[1/2] '${item.title}' 썸네일 전송 중...`);
+        const thumbFile = await retrieveLocalFile(item.thumbnailUrl!, `media_thumb_${item.id}`, `thumb_${item.id}`);
+        if (thumbFile) {
+          const safeName = thumbFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const downloadUrl = await uploadToStorage(
+            `thumbnails/${item.id}_${safeName}`,
+            thumbFile,
+            (pct) => setMigrationStatus(`[1/2] 썸네일 전송 중 (${pct}%)...`)
+          );
+          if (downloadUrl) {
+            item.thumbnailUrl = downloadUrl;
+            changed = true;
+          }
+        }
+      }
+
+      // 2. Video
+      const isVideoLocal = item.videoUrl && (
+        item.videoUrl.startsWith("indexeddb:") ||
+        item.videoUrl.startsWith("data:") ||
+        item.videoUrl.startsWith("blob:")
+      );
+      if (isVideoLocal) {
+        setMigrationStatus(`[2/2] '${item.title}' 동영상 클라우드 전송 중...`);
+        const videoFile = await retrieveLocalFile(item.videoUrl!, `media_video_${item.id}`, `video_${item.id}`);
+        if (videoFile) {
+          const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const downloadUrl = await uploadToStorage(
+            `videos/${item.id}_${safeName}`,
+            videoFile,
+            (pct) => setMigrationStatus(`[2/2] 동영상 전송 중 (${pct}%)...`)
+          );
+          if (downloadUrl) {
+            item.videoUrl = downloadUrl;
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        updatedItems[itemIdx] = item;
+        await onUpdateItems(updatedItems);
+        triggerSaveNotification(`'${item.title}' 파일이 클라우드에 연동되어 모바일에서도 표시됩니다! 🎉`);
+      } else {
+        triggerSaveNotification(`'${item.title}' 파일이 이미 클라우드에 연동되어 있습니다.`);
+      }
+    } catch (err) {
+      console.error("Single item upload failed:", err);
+      alert("단일 파일 클라우드 전송 중 오류가 발생했습니다: " + (err as Error).message);
+    } finally {
+      setIsMigrating(false);
+      setMigrationStatus("");
+    }
+  };
+
+  // Reset/Clear local IndexedDB pointers that have missing files
+  const handleResetUnsyncedAssets = async () => {
+    if (!confirm("미연동 상태의 로컬 참조를 기본 클라우드 URL로 재설정하시겠습니까? (깨진 로컬 파일이 정리됩니다)")) return;
+
+    const updated = portfolioItems.map(item => {
+      const isLocalThumb = item.thumbnailUrl && item.thumbnailUrl.startsWith("indexeddb:");
+      const isLocalVideo = item.videoUrl && item.videoUrl.startsWith("indexeddb:");
+
+      if (!isLocalThumb && !isLocalVideo) return item;
+
+      const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
+      return {
+        ...item,
+        thumbnailUrl: isLocalThumb ? (defaultItem ? defaultItem.thumbnailUrl : "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800") : item.thumbnailUrl,
+        videoUrl: isLocalVideo ? (defaultItem ? defaultItem.videoUrl : "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4") : item.videoUrl,
+      };
+    });
+
+    await onUpdateItems(updated);
+    triggerSaveNotification("미연동 참조가 초기화되었습니다.");
   };
 
   // Managing items edit state
@@ -673,34 +838,49 @@ export default function AdminPanel({
     });
   };
 
-  const handleItemSubmit = (e: React.FormEvent) => {
+  const handleItemSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!itemForm.title || !itemForm.client || !itemForm.videoUrl || !itemForm.thumbnailUrl) {
       alert("모든 필수 항목을 입력해 주세요.");
       return;
     }
 
+    const itemId = itemForm.id || Date.now().toString();
+    const targetItem: PortfolioItem = {
+      id: itemId,
+      title: itemForm.title || "",
+      client: itemForm.client || "",
+      videoUrl: itemForm.videoUrl || "",
+      thumbnailUrl: itemForm.thumbnailUrl || "",
+      year: itemForm.year || "2026",
+      description: itemForm.description || "",
+      order: isAddingNew 
+        ? (portfolioItems.length > 0 ? Math.max(...portfolioItems.map((i) => i.order)) + 1 : 1)
+        : (editingItem ? editingItem.order : 1),
+    };
+
+    let updatedList: PortfolioItem[];
     if (isAddingNew) {
-      const newItem: PortfolioItem = {
-        id: itemForm.id || Date.now().toString(),
-        title: itemForm.title || "",
-        client: itemForm.client || "",
-        videoUrl: itemForm.videoUrl || "",
-        thumbnailUrl: itemForm.thumbnailUrl || "",
-        year: itemForm.year || "2026",
-        description: itemForm.description || "",
-        order: portfolioItems.length > 0 ? Math.max(...portfolioItems.map((i) => i.order)) + 1 : 1,
-      };
-      onUpdateItems([...portfolioItems, newItem]);
-      setIsAddingNew(false);
-      triggerSaveNotification("새 작업물이 추가되었습니다.");
-    } else if (editingItem) {
-      const updated = portfolioItems.map((item) =>
-        item.id === editingItem.id ? { ...item, ...itemForm } as PortfolioItem : item
+      updatedList = [...portfolioItems, targetItem];
+    } else {
+      updatedList = portfolioItems.map((item) =>
+        item.id === itemId ? targetItem : item
       );
-      onUpdateItems(updated);
-      setEditingItem(null);
-      triggerSaveNotification("작업물이 수정되었습니다.");
+    }
+
+    await onUpdateItems(updatedList);
+    setIsAddingNew(false);
+    setEditingItem(null);
+    triggerSaveNotification(isAddingNew ? "새 작업물이 저장되었습니다." : "작업물이 수정되었습니다.");
+
+    // Check if this single item has local media that needs cloud sync for mobile view
+    const needsSync = (targetItem.thumbnailUrl && (targetItem.thumbnailUrl.startsWith("indexeddb:") || targetItem.thumbnailUrl.startsWith("data:") || targetItem.thumbnailUrl.startsWith("blob:"))) ||
+                      (targetItem.videoUrl && (targetItem.videoUrl.startsWith("indexeddb:") || targetItem.videoUrl.startsWith("data:") || targetItem.videoUrl.startsWith("blob:")));
+
+    if (needsSync) {
+      setTimeout(() => {
+        handleSingleItemCloudUpload(targetItem);
+      }, 300);
     }
   };
 
@@ -900,7 +1080,7 @@ export default function AdminPanel({
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-3 pt-1">
+                  <div className="flex items-center gap-2 pt-1 flex-wrap">
                     <button
                       onClick={handleCloudMigration}
                       disabled={isMigrating}
@@ -914,12 +1094,22 @@ export default function AdminPanel({
                       ) : (
                         <>
                           <Cloud className="w-3.5 h-3.5" />
-                          <span>클라우드로 일괄 전송 (모바일 연동)</span>
+                          <span>클라우드로 전체 일괄 전송 (모바일 연동)</span>
                         </>
                       )}
                     </button>
+
+                    <button
+                      onClick={handleResetUnsyncedAssets}
+                      disabled={isMigrating}
+                      className="inline-flex items-center gap-1.5 border border-amber-300 hover:bg-amber-100 text-amber-900 font-bold tracking-widest text-[10px] uppercase px-3 py-2.5 transition-all cursor-pointer rounded-none font-mono"
+                      title="로컬 파일이 없거나 연속 업로드 중 오류가 발생할 때 미연동 참조를 안전하게 정리합니다"
+                    >
+                      <span>미연동 로컬 참조 정리</span>
+                    </button>
+
                     {isMigrating && (
-                      <span className="text-[11px] text-amber-600 font-medium font-mono animate-pulse">
+                      <span className="text-[11px] text-amber-600 font-medium font-mono animate-pulse w-full mt-1">
                         {migrationStatus}
                       </span>
                     )}
@@ -1174,7 +1364,19 @@ export default function AdminPanel({
                             </p>
 
                             {/* Direct Cloud Upload Shortcut Buttons */}
-                            <div className="flex gap-2 mt-1.5">
+                            <div className="flex gap-2 mt-1.5 flex-wrap">
+                              {(item.thumbnailUrl?.startsWith("indexeddb:") || item.videoUrl?.startsWith("indexeddb:")) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSingleItemCloudUpload(item)}
+                                  disabled={isMigrating}
+                                  className="text-[9px] font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300 px-2 py-0.5 flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                  <Cloud className="w-2.5 h-2.5" />
+                                  <span>☁️ 이 작업물만 클라우드 전송</span>
+                                </button>
+                              )}
+
                               <button
                                 type="button"
                                 onClick={() => {
