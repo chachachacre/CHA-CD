@@ -115,62 +115,108 @@ export default function AdminPanel({
     setIsMigrating(true);
     setMigrationStatus("클라우드 마이그레이션 분석 중...");
     try {
+      // 0. Auto-sync existing storage assets first
+      setMigrationStatus("기존 클라우드 저장소 파일 동기화 중...");
+      await handleAutoSyncStorage(true).catch(() => {});
+
       let updatedSettings = { ...portfolioSettings };
-      const isPdfLocal = portfolioSettings.pdfUrl === "local_indexeddb" || (portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("indexeddb:"));
-      
+      const isPdfLocal =
+        portfolioSettings.pdfUrl === "local_indexeddb" ||
+        (portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("indexeddb:"));
+
       if (isPdfLocal) {
         setMigrationStatus("포트폴리오 PDF 파일 클라우드 전송 중...");
         const pdfFile = await getPDF();
         if (pdfFile) {
-          const downloadUrl = await uploadToStorage(`pdf/${pdfFile.name}`, pdfFile);
-          updatedSettings = {
-            ...updatedSettings,
-            pdfUrl: downloadUrl,
-          };
-          onUpdateSettings(updatedSettings);
+          const safeName = pdfFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const downloadUrl = await uploadToStorage(
+            `pdf/${safeName}`,
+            pdfFile,
+            (pct) => setMigrationStatus(`포트폴리오 PDF 전송 중 (${pct}%)...`)
+          );
+          if (downloadUrl) {
+            updatedSettings = {
+              ...updatedSettings,
+              pdfUrl: downloadUrl,
+              pdfFileName: pdfFile.name,
+            };
+            await onUpdateSettings(updatedSettings);
+          }
         }
       }
 
       const updatedItems = [...portfolioItems];
+      let hasChange = false;
+
       for (let i = 0; i < updatedItems.length; i++) {
         const item = { ...updatedItems[i] };
         let itemChanged = false;
 
+        // Migrate Thumbnail if local
         if (item.thumbnailUrl && item.thumbnailUrl.startsWith("indexeddb:")) {
           const key = item.thumbnailUrl.replace("indexeddb:", "");
-          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 업로드 중...`);
+          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 전송 준비 중...`);
           const file = await getMediaFile(key);
           if (file) {
-            const downloadUrl = await uploadToStorage(`thumbnails/${item.id}_${file.name}`, file);
-            item.thumbnailUrl = downloadUrl;
-            itemChanged = true;
+            try {
+              const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+              const downloadUrl = await uploadToStorage(
+                `thumbnails/${item.id}_${safeName}`,
+                file,
+                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 썸네일 전송 중 (${pct}%)...`)
+              );
+              if (downloadUrl) {
+                item.thumbnailUrl = downloadUrl;
+                itemChanged = true;
+              }
+            } catch (err) {
+              console.error(`Failed to migrate thumbnail for ${item.title}:`, err);
+            }
           }
         }
 
+        // Migrate Video if local
         if (item.videoUrl && item.videoUrl.startsWith("indexeddb:")) {
           const key = item.videoUrl.replace("indexeddb:", "");
-          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 업로드 중...`);
+          setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 전송 준비 중...`);
           const file = await getMediaFile(key);
           if (file) {
-            const downloadUrl = await uploadToStorage(`videos/${item.id}_${file.name}`, file);
-            item.videoUrl = downloadUrl;
-            itemChanged = true;
+            try {
+              const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+              const downloadUrl = await uploadToStorage(
+                `videos/${item.id}_${safeName}`,
+                file,
+                (pct) => setMigrationStatus(`[${i + 1}/${updatedItems.length}] ${item.title} 동영상 전송 중 (${pct}%)...`)
+              );
+              if (downloadUrl) {
+                item.videoUrl = downloadUrl;
+                itemChanged = true;
+              }
+            } catch (err) {
+              console.error(`Failed to migrate video for ${item.title}:`, err);
+            }
           }
         }
 
         if (itemChanged) {
           updatedItems[i] = item;
+          hasChange = true;
         }
       }
 
-      setMigrationStatus("클라우드 데이터베이스 최신화 중...");
-      await onUpdateItems(updatedItems);
-      
-      triggerSaveNotification("모든 자산이 클라우드로 완벽히 전송 및 연동되었습니다! 🎉");
+      if (hasChange) {
+        setMigrationStatus("클라우드 데이터베이스 최신화 중...");
+        await onUpdateItems(updatedItems);
+      }
+
+      // Final auto-sync check
+      await handleAutoSyncStorage(true).catch(() => {});
+
+      triggerSaveNotification("모든 자산이 클라우드로 완벽히 전송 및 모바일 연동되었습니다! 🎉");
       setMigrationStatus("");
     } catch (err) {
       console.error("Migration failed:", err);
-      alert("마이그레이션 중 오류가 발생했습니다: " + (err as Error).message);
+      alert("클라우드 연동 중 오류가 발생했습니다: " + (err as Error).message);
     } finally {
       setIsMigrating(false);
     }
