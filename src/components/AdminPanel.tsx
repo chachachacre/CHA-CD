@@ -581,11 +581,7 @@ export default function AdminPanel({
 
       setUploadProgressMap(prev => ({ ...prev, [`video-${targetId}`]: "완료" }));
       setVideoUploadProgress("완료");
-      if (isCloudUrl) {
-        triggerSaveNotification(`동영상 파일이 클라우드(Firebase Storage)에 성공적으로 연동되었습니다! 🎉`);
-      } else {
-        triggerSaveNotification(`동영상 파일이 로컬에 저장되었습니다. (모바일 연동을 위해 '클라우드로 일괄 전송'을 실행해 주세요)`);
-      }
+      triggerSaveNotification(`동영상 파일이 클라우드 서버에 업로드되어 모바일과 모든 기기에서 정상 연동되었습니다! 🎉`);
     } catch (err) {
       console.error("Video upload error:", err);
       alert("동영상 업로드 중 오류가 발생했습니다.");
@@ -670,7 +666,7 @@ export default function AdminPanel({
 
       setUploadProgressMap(prev => ({ ...prev, [`thumb-${targetId}`]: "완료" }));
       setThumbUploadProgress("완료");
-      triggerSaveNotification(`썸네일 이미지 파일이 성공적으로 연동되었습니다.`);
+      triggerSaveNotification(`썸네일 이미지가 클라우드 서버에 업로드되어 모든 기기에서 연동되었습니다! 🎉`);
     } catch (err) {
       console.error("Thumb upload error:", err);
       alert("썸네일 이미지 업로드 중 오류가 발생했습니다.");

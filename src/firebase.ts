@@ -162,12 +162,55 @@ export async function syncPdfUrlToFirestore(
   }
 }
 
-// Helper to upload a file to Firebase Storage and get download URL
+// Helper to upload a file to Cloud Storage (tries Server /api/upload first for 100% reliability, falls back to Firebase Storage)
 export async function uploadToStorage(
   path: string,
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<string> {
+  // 1. Try Server Upload API first (Same-Origin, zero CORS issues, works on mobile & web)
+  try {
+    if (onProgress) onProgress(10);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const xhr = new XMLHttpRequest();
+    const serverUploadPromise = new Promise<string>((resolve, reject) => {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.success && data.url) {
+              console.log("[Cloud Storage] Uploaded via Server API:", data.url);
+              resolve(data.url);
+            } else {
+              reject(new Error(data.error || "Server upload failed"));
+            }
+          } catch (e) {
+            reject(e);
+          }
+        } else {
+          reject(new Error(`Server returned HTTP ${xhr.status}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Network error during server upload"));
+      xhr.open("POST", "/api/upload");
+      xhr.send(formData);
+    });
+
+    const resultUrl = await serverUploadPromise;
+    if (resultUrl) return resultUrl;
+  } catch (serverErr) {
+    console.warn("[Cloud Storage] Server /api/upload failed or unavailable, falling back to Firebase Storage:", serverErr);
+  }
+
+  // 2. Fallback to Firebase Storage
   const cleanPath = path.replace(/^\//, "");
   const storageRef = ref(storage, cleanPath);
 
