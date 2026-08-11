@@ -187,21 +187,19 @@ export default function AdminPanel({
       const updatedItems = [...portfolioItems];
       let itemsChanged = false;
 
-      // Filter items that actually need cloud migration (local IndexedDB, Data URL, Blob, /uploads/)
+      // Filter items that actually need cloud migration (local IndexedDB, Data URL, Blob)
       const pendingIndices: number[] = [];
       updatedItems.forEach((item, idx) => {
         const thumbIsLocal =
           item.thumbnailUrl &&
           (item.thumbnailUrl.startsWith("indexeddb:") ||
            item.thumbnailUrl.startsWith("data:") ||
-           item.thumbnailUrl.startsWith("blob:") ||
-           item.thumbnailUrl.startsWith("/uploads/"));
+           item.thumbnailUrl.startsWith("blob:"));
         const videoIsLocal =
           item.videoUrl &&
           (item.videoUrl.startsWith("indexeddb:") ||
            item.videoUrl.startsWith("data:") ||
-           item.videoUrl.startsWith("blob:") ||
-           item.videoUrl.startsWith("/uploads/"));
+           item.videoUrl.startsWith("blob:"));
 
         if (thumbIsLocal || videoIsLocal) {
           pendingIndices.push(idx);
@@ -396,8 +394,7 @@ export default function AdminPanel({
       const isThumbLocal = item.thumbnailUrl && (
         item.thumbnailUrl.startsWith("indexeddb:") ||
         item.thumbnailUrl.startsWith("data:") ||
-        item.thumbnailUrl.startsWith("blob:") ||
-        item.thumbnailUrl.startsWith("/uploads/")
+        item.thumbnailUrl.startsWith("blob:")
       );
       if (isThumbLocal) {
         setMigrationStatus(`[1/2] '${item.title}' 썸네일 전송 중...`);
@@ -420,8 +417,7 @@ export default function AdminPanel({
       const isVideoLocal = item.videoUrl && (
         item.videoUrl.startsWith("indexeddb:") ||
         item.videoUrl.startsWith("data:") ||
-        item.videoUrl.startsWith("blob:") ||
-        item.videoUrl.startsWith("/uploads/")
+        item.videoUrl.startsWith("blob:")
       );
       if (isVideoLocal) {
         setMigrationStatus(`[2/2] '${item.title}' 동영상 클라우드 전송 중...`);
