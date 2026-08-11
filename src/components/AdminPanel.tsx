@@ -133,7 +133,7 @@ export default function AdminPanel({
           const file = await getMediaFile(fallbackKey);
           if (file) return file;
         }
-        if (urlOrKey.startsWith("data:") || urlOrKey.startsWith("blob:")) {
+        if (urlOrKey.startsWith("data:") || urlOrKey.startsWith("blob:") || urlOrKey.startsWith("/uploads/")) {
           try {
             const res = await fetch(urlOrKey);
             const blob = await res.blob();
@@ -141,7 +141,7 @@ export default function AdminPanel({
             const ext = mime.split("/")[1]?.split(";")[0] || "bin";
             return new File([blob], `${defaultFileName}.${ext}`, { type: mime });
           } catch (e) {
-            console.warn("Failed to convert data/blob URL to File:", e);
+            console.warn("Failed to convert data/blob/uploads URL to File:", e);
           }
         }
         return null;
@@ -150,7 +150,7 @@ export default function AdminPanel({
       // 1. PDF Migration
       const isPdfLocal =
         portfolioSettings.pdfUrl === "local_indexeddb" ||
-        (portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("indexeddb:"));
+        (portfolioSettings.pdfUrl && (portfolioSettings.pdfUrl.startsWith("indexeddb:") || portfolioSettings.pdfUrl.startsWith("/uploads/")));
 
       if (isPdfLocal) {
         setMigrationStatus("포트폴리오 PDF 파일 클라우드 전송 중...");
@@ -187,19 +187,21 @@ export default function AdminPanel({
       const updatedItems = [...portfolioItems];
       let itemsChanged = false;
 
-      // Filter items that actually need cloud migration (local IndexedDB, Data URL, Blob)
+      // Filter items that actually need cloud migration (local IndexedDB, Data URL, Blob, /uploads/)
       const pendingIndices: number[] = [];
       updatedItems.forEach((item, idx) => {
         const thumbIsLocal =
           item.thumbnailUrl &&
           (item.thumbnailUrl.startsWith("indexeddb:") ||
            item.thumbnailUrl.startsWith("data:") ||
-           item.thumbnailUrl.startsWith("blob:"));
+           item.thumbnailUrl.startsWith("blob:") ||
+           item.thumbnailUrl.startsWith("/uploads/"));
         const videoIsLocal =
           item.videoUrl &&
           (item.videoUrl.startsWith("indexeddb:") ||
            item.videoUrl.startsWith("data:") ||
-           item.videoUrl.startsWith("blob:"));
+           item.videoUrl.startsWith("blob:") ||
+           item.videoUrl.startsWith("/uploads/"));
 
         if (thumbIsLocal || videoIsLocal) {
           pendingIndices.push(idx);
@@ -239,7 +241,8 @@ export default function AdminPanel({
             item.thumbnailUrl &&
             (item.thumbnailUrl.startsWith("indexeddb:") ||
              item.thumbnailUrl.startsWith("data:") ||
-             item.thumbnailUrl.startsWith("blob:"));
+             item.thumbnailUrl.startsWith("blob:") ||
+             item.thumbnailUrl.startsWith("/uploads/"));
 
           if (thumbIsLocal) {
             setMigrationStatus(`[${pIdx + 1}/${pendingIndices.length}] ${item.title} 썸네일 전송 준비 중...`);
@@ -285,7 +288,8 @@ export default function AdminPanel({
             item.videoUrl &&
             (item.videoUrl.startsWith("indexeddb:") ||
              item.videoUrl.startsWith("data:") ||
-             item.videoUrl.startsWith("blob:"));
+             item.videoUrl.startsWith("blob:") ||
+             item.videoUrl.startsWith("/uploads/"));
 
           if (videoIsLocal) {
             setMigrationStatus(`[${pIdx + 1}/${pendingIndices.length}] ${item.title} 동영상 전송 준비 중...`);
@@ -392,7 +396,8 @@ export default function AdminPanel({
       const isThumbLocal = item.thumbnailUrl && (
         item.thumbnailUrl.startsWith("indexeddb:") ||
         item.thumbnailUrl.startsWith("data:") ||
-        item.thumbnailUrl.startsWith("blob:")
+        item.thumbnailUrl.startsWith("blob:") ||
+        item.thumbnailUrl.startsWith("/uploads/")
       );
       if (isThumbLocal) {
         setMigrationStatus(`[1/2] '${item.title}' 썸네일 전송 중...`);
@@ -415,7 +420,8 @@ export default function AdminPanel({
       const isVideoLocal = item.videoUrl && (
         item.videoUrl.startsWith("indexeddb:") ||
         item.videoUrl.startsWith("data:") ||
-        item.videoUrl.startsWith("blob:")
+        item.videoUrl.startsWith("blob:") ||
+        item.videoUrl.startsWith("/uploads/")
       );
       if (isVideoLocal) {
         setMigrationStatus(`[2/2] '${item.title}' 동영상 클라우드 전송 중...`);
