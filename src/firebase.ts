@@ -7,9 +7,9 @@ import firebaseConfig from "../firebase-applet-config.json";
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
-const bucket = firebaseConfig.storageBucket || "";
-const bucketUrl = bucket ? (bucket.startsWith("gs://") ? bucket : `gs://${bucket}`) : undefined;
-export const storage = bucketUrl ? getStorage(app, bucketUrl) : getStorage(app);
+const rawBucket = firebaseConfig.storageBucket || "";
+const cleanBucket = rawBucket.replace(/^gs:\/\//, "");
+export const storage = cleanBucket ? getStorage(app, cleanBucket) : getStorage(app);
 
 // Convert a file to Base64 Data URL (useful for thumbnail images fallback)
 export function fileToDataUrl(file: File): Promise<string> {
