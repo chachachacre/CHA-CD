@@ -23,7 +23,7 @@ import VideoModal from "./components/VideoModal";
 import AdminPanel from "./components/AdminPanel";
 import { getPDF, useMediaUrl } from "./pdfStorage";
 import { ResolvedImage } from "./components/ResolvedImage";
-import { db, syncAllPortfolioItemsToFirestore, saveContactInfoToFirestore, savePortfolioSettingsToFirestore } from "./firebase";
+import { db, syncAllPortfolioItemsToFirestore, saveContactInfoToFirestore, savePortfolioSettingsToFirestore, syncStorageUrlsToFirestore, syncPdfUrlToFirestore } from "./firebase";
 import { collection, doc, onSnapshot, setDoc, query, orderBy, writeBatch } from "firebase/firestore";
 
 export default function App() {
@@ -71,6 +71,18 @@ export default function App() {
           });
           setPortfolioItems(items);
           localStorage.setItem("cha_portfolio_items", JSON.stringify(items));
+
+          // Auto repair/sync if items contain local indexeddb links that won't work on mobile
+          const hasLocalLinks = items.some(
+            (item) =>
+              (item.thumbnailUrl && item.thumbnailUrl.startsWith("indexeddb:")) ||
+              (item.videoUrl && item.videoUrl.startsWith("indexeddb:"))
+          );
+          if (hasLocalLinks) {
+            syncStorageUrlsToFirestore(items, syncAllPortfolioItemsToFirestore).catch((e) =>
+              console.warn("Background storage sync attempt error:", e)
+            );
+          }
         }
       },
       (error) => {
@@ -128,6 +140,12 @@ export default function App() {
           } else {
             setPortfolioSettings(settings);
             localStorage.setItem("cha_portfolio_settings", JSON.stringify(settings));
+          }
+
+          if (settings.pdfUrl === "local_indexeddb" || (settings.pdfUrl && settings.pdfUrl.startsWith("indexeddb:"))) {
+            syncPdfUrlToFirestore(settings, savePortfolioSettingsToFirestore).catch((e) =>
+              console.warn("Background PDF sync error:", e)
+            );
           }
         }
       },

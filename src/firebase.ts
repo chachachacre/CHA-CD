@@ -6,7 +6,20 @@ import firebaseConfig from "../firebase-applet-config.json";
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const storage = getStorage(app);
+
+const bucket = firebaseConfig.storageBucket || "";
+const bucketUrl = bucket ? (bucket.startsWith("gs://") ? bucket : `gs://${bucket}`) : undefined;
+export const storage = bucketUrl ? getStorage(app, bucketUrl) : getStorage(app);
+
+// Convert a file to Base64 Data URL (useful for thumbnail images fallback)
+export function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
 
 // Sync existing storage files to portfolio items and settings automatically
 export async function syncStorageUrlsToFirestore(
@@ -152,31 +165,39 @@ export async function uploadToStorage(
   onProgress?: (percent: number) => void
 ): Promise<string> {
   const storageRef = ref(storage, path);
-  return new Promise((resolve, reject) => {
+  try {
     const uploadTask = uploadBytesResumable(storageRef, file);
 
-    uploadTask.on(
-      "state_changed",
-      (snapshot) => {
-        if (onProgress && snapshot.totalBytes > 0) {
-          const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-          onProgress(percent);
+    return await new Promise<string>((resolve, reject) => {
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          if (onProgress && snapshot.totalBytes > 0) {
+            const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+            onProgress(percent);
+          }
+        },
+        (error) => {
+          console.warn("Firebase Storage uploadBytesResumable error:", error);
+          reject(error);
+        },
+        async () => {
+          try {
+            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+            resolve(downloadUrl);
+          } catch (err) {
+            reject(err);
+          }
         }
-      },
-      (error) => {
-        console.error("Firebase Storage Upload Error:", error);
-        reject(error);
-      },
-      async () => {
-        try {
-          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-          resolve(downloadUrl);
-        } catch (err) {
-          reject(err);
-        }
-      }
-    );
-  });
+      );
+    });
+  } catch (resumableErr) {
+    console.warn("Resumable upload failed, falling back to direct uploadBytes:", resumableErr);
+    if (onProgress) onProgress(50);
+    const snapshot = await uploadBytes(storageRef, file);
+    if (onProgress) onProgress(100);
+    return await getDownloadURL(snapshot.ref);
+  }
 }
 
 // Helper to delete a file from Firebase Storage

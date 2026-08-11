@@ -26,7 +26,7 @@ import {
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "../types";
 import { savePDF, getPDF, deletePDF, saveMediaFile, getMediaFile, deleteMediaFile, useMediaUrl } from "../pdfStorage";
 import { ResolvedImage } from "./ResolvedImage";
-import { uploadToStorage, deleteFromStorage, syncStorageUrlsToFirestore, syncPdfUrlToFirestore } from "../firebase";
+import { uploadToStorage, deleteFromStorage, syncStorageUrlsToFirestore, syncPdfUrlToFirestore, fileToDataUrl } from "../firebase";
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -170,7 +170,14 @@ export default function AdminPanel({
                 itemChanged = true;
               }
             } catch (err) {
-              console.error(`Failed to migrate thumbnail for ${item.title}:`, err);
+              console.warn(`Storage upload failed for thumbnail ${item.title}, converting to Data URL fallback:`, err);
+              try {
+                const dataUrl = await fileToDataUrl(file);
+                item.thumbnailUrl = dataUrl;
+                itemChanged = true;
+              } catch (e) {
+                console.error("Data URL conversion failed:", e);
+              }
             }
           }
         }
@@ -294,6 +301,7 @@ export default function AdminPanel({
       }
 
       // 2. Upload to Firebase Storage with live percentage tracking
+      let isCloudUrl = false;
       try {
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
         const downloadUrl = await uploadToStorage(
@@ -307,6 +315,7 @@ export default function AdminPanel({
         );
         if (downloadUrl) {
           finalVideoUrl = downloadUrl;
+          isCloudUrl = true;
         }
       } catch (cloudErr) {
         console.warn("Firebase Storage video upload error, using local fallback:", cloudErr);
@@ -329,7 +338,11 @@ export default function AdminPanel({
 
       setUploadProgressMap(prev => ({ ...prev, [`video-${targetId}`]: "완료" }));
       setVideoUploadProgress("완료");
-      triggerSaveNotification(`동영상 파일이 성공적으로 연동되었습니다.`);
+      if (isCloudUrl) {
+        triggerSaveNotification(`동영상 파일이 클라우드(Firebase Storage)에 성공적으로 연동되었습니다! 🎉`);
+      } else {
+        triggerSaveNotification(`동영상 파일이 로컬에 저장되었습니다. (모바일 연동을 위해 '클라우드로 일괄 전송'을 실행해 주세요)`);
+      }
     } catch (err) {
       console.error("Video upload error:", err);
       alert("동영상 업로드 중 오류가 발생했습니다.");
@@ -388,7 +401,13 @@ export default function AdminPanel({
           finalThumbUrl = downloadUrl;
         }
       } catch (cloudErr) {
-        console.warn("Firebase Storage thumb upload error, using local fallback:", cloudErr);
+        console.warn("Firebase Storage thumb upload error, using Data URL fallback for global compatibility:", cloudErr);
+        try {
+          const dataUrl = await fileToDataUrl(file);
+          finalThumbUrl = dataUrl;
+        } catch (e) {
+          console.error("Data URL conversion failed:", e);
+        }
       }
 
       // Update the active form state

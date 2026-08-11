@@ -101,12 +101,22 @@ export default function VideoModal({ item, onClose }: VideoModalProps) {
           )}
 
           {hasError ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-neutral-950 text-neutral-400 p-4 text-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-neutral-950 text-neutral-400 p-6 text-center">
               <VideoOff className="w-12 h-12 text-neutral-600 mb-3" />
-              <p className="text-sm font-medium text-neutral-300 mb-1">영상을 재생할 수 없습니다</p>
-              <p className="text-xs text-neutral-500 max-w-xs">
-                유효한 영상 URL인지 확인해 주세요. 혹은 브라우저의 미디어 정책에 의해 차단되었을 수 있습니다.
+              <p className="text-sm font-bold text-white mb-1">영상을 인코딩 또는 불러오는 중입니다</p>
+              <p className="text-xs text-neutral-400 max-w-sm mb-4 leading-relaxed">
+                모바일 환경이거나 클라우드 전송 중인 영상일 수 있습니다. 관리자 콘솔에서 &apos;클라우드로 일괄 전송 (모바일 연동)&apos; 버튼을 누르셨는지 확인해 주세요.
               </p>
+              {resolvedVideoUrl && resolvedVideoUrl.startsWith("http") && (
+                <a
+                  href={resolvedVideoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs bg-white text-black px-4 py-2 font-bold uppercase tracking-wider hover:bg-neutral-200 transition-all"
+                >
+                  새 창에서 영상 직접 열기 ↗
+                </a>
+              )}
             </div>
           ) : ytId ? (
             <iframe
@@ -153,15 +163,13 @@ export default function VideoModal({ item, onClose }: VideoModalProps) {
               controls
               autoPlay
               playsInline
+              preload="auto"
               className="w-full h-full object-contain absolute inset-0"
               onLoadedData={() => setLoading(false)}
               onCanPlay={() => setLoading(false)}
               onError={() => {
-                // Only show error if the URL is loaded and fails
-                if (resolvedVideoUrl) {
-                  setLoading(false);
-                  setHasError(true);
-                }
+                setLoading(false);
+                setHasError(true);
               }}
             />
           )}
