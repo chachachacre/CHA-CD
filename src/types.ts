@@ -21,4 +21,8 @@ export interface PortfolioSettings {
   pdfUrl: string;
   pdfFileName: string;
   introduction?: string;
+  rateCardUrl?: string;
+  rateCardFileName?: string;
+  rateCardTitle?: string;
+  rateCardNote?: string;
 }

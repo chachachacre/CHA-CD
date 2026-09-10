@@ -21,7 +21,8 @@ import {
   Upload,
   AlertCircle,
   Cloud,
-  Loader2
+  Loader2,
+  CreditCard
 } from "lucide-react";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "../types";
 import { initialPortfolioItems } from "../data";
@@ -509,6 +510,12 @@ export default function AdminPanel({
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Rate Card (단가표) upload state & handlers
+  const [uploadedRateCardName, setUploadedRateCardName] = useState<string | null>(portfolioSettings.rateCardFileName || null);
+  const [isRateCardDragging, setIsRateCardDragging] = useState(false);
+  const rateCardFileInputRef = useRef<HTMLInputElement>(null);
+  const [rateCardUploadProgress, setRateCardUploadProgress] = useState<string | null>(null);
+
   const videoFileInputRef = useRef<HTMLInputElement>(null);
   const thumbFileInputRef = useRef<HTMLInputElement>(null);
   const [videoUploadProgress, setVideoUploadProgress] = useState<string | null>(null);
@@ -690,6 +697,14 @@ export default function AdminPanel({
     } else {
       setUploadedFileName(null);
     }
+
+    if (portfolioSettings.rateCardFileName) {
+      setUploadedRateCardName(portfolioSettings.rateCardFileName);
+    } else if (portfolioSettings.rateCardUrl) {
+      setUploadedRateCardName(portfolioSettings.rateCardTitle || "등록된 단가표");
+    } else {
+      setUploadedRateCardName(null);
+    }
   };
 
   useEffect(() => {
@@ -802,6 +817,85 @@ export default function AdminPanel({
     await processPdfUpload(file);
   };
 
+  const processRateCardUpload = async (file: File) => {
+    try {
+      setRateCardUploadProgress("업로드 준비 중...");
+      
+      // 1. Save locally first to IndexedDB as fallback
+      try {
+        await saveMediaFile("rate_card_file", file);
+      } catch (idbErr) {
+        console.warn("Local rate card save error:", idbErr);
+      }
+
+      let downloadUrl = "indexeddb:rate_card_file";
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const cloudUrl = await uploadToStorage(
+          `ratecard/${safeName}`,
+          file,
+          (percent) => {
+            setRateCardUploadProgress(`업로드 중 (${percent}%)`);
+          }
+        );
+        if (cloudUrl) {
+          downloadUrl = cloudUrl;
+        }
+      } catch (cloudErr) {
+        console.warn("Rate card cloud upload error, using local fallback:", cloudErr);
+      }
+
+      const updatedSettings: PortfolioSettings = {
+        ...settingsForm,
+        rateCardFileName: file.name,
+        rateCardUrl: downloadUrl,
+        rateCardTitle: settingsForm.rateCardTitle || "제작 단가표 (Rate Card)",
+      };
+      setSettingsForm(updatedSettings);
+      await onUpdateSettings(updatedSettings);
+      setUploadedRateCardName(file.name);
+      setRateCardUploadProgress(null);
+      triggerSaveNotification("제작 단가표가 클라우드에 성공적으로 등록되었습니다. 🎉");
+    } catch (err) {
+      console.error(err);
+      alert("단가표 업로드 처리 중 오류가 발생했습니다.");
+      setRateCardUploadProgress(null);
+      setUploadedRateCardName(settingsForm.rateCardFileName || null);
+    }
+  };
+
+  const handleRateCardFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processRateCardUpload(file);
+  };
+
+  const handleRateCardFileDelete = async () => {
+    if (confirm("정말로 등록된 제작 단가표를 삭제하시겠습니까?")) {
+      try {
+        if (settingsForm.rateCardFileName) {
+          await deleteFromStorage(`ratecard/${settingsForm.rateCardFileName}`).catch(() => {});
+        }
+        await deleteMediaFile("rate_card_file").catch(() => {});
+        setUploadedRateCardName(null);
+        if (rateCardFileInputRef.current) {
+          rateCardFileInputRef.current.value = "";
+        }
+        const updatedSettings: PortfolioSettings = {
+          ...settingsForm,
+          rateCardUrl: "",
+          rateCardFileName: "",
+        };
+        setSettingsForm(updatedSettings);
+        await onUpdateSettings(updatedSettings);
+        triggerSaveNotification("제작 단가표가 삭제되었습니다.");
+      } catch (err) {
+        console.error(err);
+        alert("단가표 삭제 중 오류가 발생했습니다.");
+      }
+    }
+  };
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (password === "0824") {
@@ -869,13 +963,23 @@ export default function AdminPanel({
       year: itemForm.year || "2026",
       description: itemForm.description || "",
       order: isAddingNew 
-        ? (portfolioItems.length > 0 ? Math.max(...portfolioItems.map((i) => i.order)) + 1 : 1)
+        ? 1
         : (editingItem ? editingItem.order : 1),
     };
 
     let updatedList: PortfolioItem[];
     if (isAddingNew) {
-      updatedList = [...portfolioItems, targetItem];
+      // 신규 등록 작업물은 맨 앞자리(1번)에 자동 배치되고, 기존 작업물들은 2, 3, 4번 순차로 밀림
+      const sortedExisting = [...portfolioItems].sort((a, b) => a.order - b.order);
+      const reorderedExisting = sortedExisting.map((item, idx) => ({
+        ...item,
+        order: idx + 2,
+      }));
+      const newItemFront: PortfolioItem = {
+        ...targetItem,
+        order: 1,
+      };
+      updatedList = [newItemFront, ...reorderedExisting];
     } else {
       updatedList = portfolioItems.map((item) =>
         item.id === itemId ? targetItem : item
@@ -885,7 +989,7 @@ export default function AdminPanel({
     await onUpdateItems(updatedList);
     setIsAddingNew(false);
     setEditingItem(null);
-    triggerSaveNotification(isAddingNew ? "새 작업물이 저장되었습니다." : "작업물이 수정되었습니다.");
+    triggerSaveNotification(isAddingNew ? "새 작업물이 맨 앞자리(1번)에 저장되었습니다." : "작업물이 수정되었습니다.");
 
     // Check if this single item has local media that needs cloud sync for mobile view
     const needsSync = (targetItem.thumbnailUrl && (targetItem.thumbnailUrl.startsWith("indexeddb:") || targetItem.thumbnailUrl.startsWith("data:") || targetItem.thumbnailUrl.startsWith("blob:"))) ||
@@ -901,8 +1005,10 @@ export default function AdminPanel({
   const handleDeleteItem = (id: string) => {
     if (confirm("정말로 이 작업물을 삭제하시겠습니까?")) {
       const filtered = portfolioItems.filter((item) => item.id !== id);
-      // Re-index orders
-      const ordered = filtered.map((item, index) => ({ ...item, order: index + 1 }));
+      // Re-index orders cleanly 1, 2, 3...
+      const ordered = filtered
+        .sort((a, b) => a.order - b.order)
+        .map((item, index) => ({ ...item, order: index + 1 }));
       onUpdateItems(ordered);
       triggerSaveNotification("작업물이 삭제되었습니다.");
       
@@ -917,17 +1023,24 @@ export default function AdminPanel({
   };
 
   const moveItem = (index: number, direction: "up" | "down") => {
-    const newItems = [...portfolioItems].sort((a, b) => a.order - b.order);
+    const sorted = [...portfolioItems].sort((a, b) => a.order - b.order);
     const targetIndex = direction === "up" ? index - 1 : index + 1;
 
-    if (targetIndex < 0 || targetIndex >= newItems.length) return;
+    if (targetIndex < 0 || targetIndex >= sorted.length) return;
 
-    // Swap orders
-    const temp = newItems[index].order;
-    newItems[index].order = newItems[targetIndex].order;
-    newItems[targetIndex].order = temp;
+    // Swap items in the sorted array
+    const itemA = sorted[index];
+    const itemB = sorted[targetIndex];
+    sorted[index] = itemB;
+    sorted[targetIndex] = itemA;
 
-    onUpdateItems(newItems);
+    // Re-index contiguous orders: 1, 2, 3...
+    const normalized = sorted.map((it, idx) => ({
+      ...it,
+      order: idx + 1,
+    }));
+
+    onUpdateItems(normalized);
   };
 
   if (!isOpen) return null;
@@ -1219,7 +1332,7 @@ export default function AdminPanel({
                         <div>
                           <div className="flex justify-between items-center mb-1">
                             <label className="block text-neutral-600 font-medium text-xs">
-                              영상 재생 URL / 직접 업로드*
+                              영상 재생 URL (클라우드 직링크 / 유튜브 / 비메오) / 파일 업로드*
                             </label>
                             <button
                               type="button"
@@ -1227,7 +1340,7 @@ export default function AdminPanel({
                               className="text-[10px] font-bold text-neutral-900 border border-neutral-200 bg-white hover:bg-neutral-50 px-2 py-0.5 flex items-center gap-1 cursor-pointer"
                             >
                               <Upload className="w-3 h-3" />
-                              {itemForm.videoUrl?.startsWith("indexeddb:") ? "동영상 변경" : "동영상 파일 업로드"}
+                              <span>비디오 파일 업로드</span>
                             </button>
                             <input
                               ref={videoFileInputRef}
@@ -1238,46 +1351,47 @@ export default function AdminPanel({
                             />
                           </div>
 
+                          <input
+                            type="text"
+                            required
+                            value={itemForm.videoUrl}
+                            onChange={(e) => setItemForm({ ...itemForm, videoUrl: e.target.value })}
+                            placeholder="https://firebasestorage.googleapis.com/... 또는 유튜브/비메오 주소"
+                            className="w-full px-3 py-2 border border-neutral-200 rounded-none bg-white text-neutral-800 focus:outline-none focus:border-black font-mono text-xs"
+                          />
+
+                          {/* Status Badge */}
                           {itemForm.videoUrl?.startsWith("indexeddb:") ? (
-                            <div className="flex items-center justify-between p-2.5 bg-neutral-50 border border-neutral-200">
-                              <span className="text-xs text-neutral-800 font-medium truncate max-w-[250px]">
-                                📁 업로드된 로컬 비디오 재생 활성화됨
-                              </span>
+                            <div className="mt-1 p-2 bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex justify-between items-center">
+                              <span>📁 이 브라우저의 로컬 비디오가 연결됨</span>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setItemForm((prev) => ({ ...prev, videoUrl: "" }));
-                                  setVideoUploadProgress(null);
-                                }}
-                                className="text-[10px] font-bold text-red-500 hover:underline cursor-pointer"
+                                onClick={() => setItemForm(prev => ({ ...prev, videoUrl: "" }))}
+                                className="text-[10px] text-red-600 font-bold hover:underline cursor-pointer"
                               >
-                                비우고 주소 입력하기
+                                지우기
                               </button>
                             </div>
-                          ) : (
-                            <input
-                              type="text"
-                              required
-                              value={itemForm.videoUrl}
-                              onChange={(e) => setItemForm({ ...itemForm, videoUrl: e.target.value })}
-                              placeholder="https://assets.mixkit.co/...mp4 또는 유튜브/비메오 주소"
-                              className="w-full px-3 py-2 border border-neutral-200 rounded-none bg-white text-neutral-800 focus:outline-none focus:border-black font-mono"
-                            />
-                          )}
+                          ) : itemForm.videoUrl?.startsWith("http") ? (
+                            <p className="text-[11px] text-emerald-700 mt-1 font-medium">
+                              🌐 클라우드 웹 링크 연동 완료
+                            </p>
+                          ) : null}
+
                           {videoUploadProgress && videoUploadProgress !== "완료" && (
                             <p className="text-[10px] text-blue-600 mt-1 font-medium animate-pulse">
                               ⏳ {videoUploadProgress}
                             </p>
                           )}
                           <p className="text-[10px] text-neutral-500 mt-1">
-                            * 직접 비디오 파일을 업로드하거나, 외부 MP4/유튜브/비메오 주소를 자유롭게 입력해 활용할 수 있습니다.
+                            * 직접 비디오 파일을 업로드하거나, Firebase Storage/유튜브/비메오 직링크 주소를 입력하세요.
                           </p>
                         </div>
 
                         <div>
                           <div className="flex justify-between items-center mb-1">
                             <label className="block text-neutral-600 font-medium text-xs">
-                              썸네일 이미지 URL / 직접 업로드*
+                              썸네일 이미지 URL (클라우드 직링크) / 파일 업로드*
                             </label>
                             <button
                               type="button"
@@ -1285,7 +1399,7 @@ export default function AdminPanel({
                               className="text-[10px] font-bold text-neutral-900 border border-neutral-200 bg-white hover:bg-neutral-50 px-2 py-0.5 flex items-center gap-1 cursor-pointer"
                             >
                               <Upload className="w-3 h-3" />
-                              {itemForm.thumbnailUrl?.startsWith("indexeddb:") ? "썸네일 변경" : "썸네일 이미지 업로드"}
+                              <span>썸네일 이미지 업로드</span>
                             </button>
                             <input
                               ref={thumbFileInputRef}
@@ -1296,32 +1410,33 @@ export default function AdminPanel({
                             />
                           </div>
 
+                          <input
+                            type="text"
+                            required
+                            value={itemForm.thumbnailUrl}
+                            onChange={(e) => setItemForm({ ...itemForm, thumbnailUrl: e.target.value })}
+                            placeholder="https://firebasestorage.googleapis.com/... 또는 https://..."
+                            className="w-full px-3 py-2 border border-neutral-200 rounded-none bg-white text-neutral-800 focus:outline-none focus:border-black font-mono text-xs"
+                          />
+
+                          {/* Status Badge */}
                           {itemForm.thumbnailUrl?.startsWith("indexeddb:") ? (
-                            <div className="flex items-center justify-between p-2.5 bg-neutral-50 border border-neutral-200">
-                              <span className="text-xs text-neutral-800 font-medium truncate max-w-[250px]">
-                                🖼️ 업로드된 로컬 이미지 사용 중
-                              </span>
+                            <div className="mt-1 p-2 bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex justify-between items-center">
+                              <span>🖼️ 이 브라우저의 로컬 썸네일이 연결됨</span>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setItemForm((prev) => ({ ...prev, thumbnailUrl: "" }));
-                                  setThumbUploadProgress(null);
-                                }}
-                                className="text-[10px] font-bold text-red-500 hover:underline cursor-pointer"
+                                onClick={() => setItemForm(prev => ({ ...prev, thumbnailUrl: "" }))}
+                                className="text-[10px] text-red-600 font-bold hover:underline cursor-pointer"
                               >
-                                비우고 주소 입력하기
+                                지우기
                               </button>
                             </div>
-                          ) : (
-                            <input
-                              type="text"
-                              required
-                              value={itemForm.thumbnailUrl}
-                              onChange={(e) => setItemForm({ ...itemForm, thumbnailUrl: e.target.value })}
-                              placeholder="https://images.unsplash.com/photo-..."
-                              className="w-full px-3 py-2 border border-neutral-200 rounded-none bg-white text-neutral-800 focus:outline-none focus:border-black font-mono"
-                            />
-                          )}
+                          ) : itemForm.thumbnailUrl?.startsWith("http") || itemForm.thumbnailUrl?.startsWith("data:") ? (
+                            <p className="text-[11px] text-emerald-700 mt-1 font-medium">
+                              🌐 클라우드 이미지 연동 완료
+                            </p>
+                          ) : null}
+
                           {thumbUploadProgress && thumbUploadProgress !== "완료" && (
                             <p className="text-[10px] text-blue-600 mt-1 font-medium animate-pulse">
                               ⏳ {thumbUploadProgress}
@@ -1370,9 +1485,18 @@ export default function AdminPanel({
                             referrerPolicy="no-referrer"
                           />
                           <div className="min-w-0">
-                            <p className="font-semibold text-neutral-900 truncate">
-                              {item.title}
-                            </p>
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <span className={`text-[9px] font-mono px-1.5 py-0.2 font-bold ${
+                                index === 0
+                                  ? "bg-black text-white"
+                                  : "bg-neutral-200 text-neutral-700"
+                              }`}>
+                                {index === 0 ? "1번 · 맨 앞" : `${index + 1}번`}
+                              </span>
+                              <p className="font-semibold text-neutral-900 truncate">
+                                {item.title}
+                              </p>
+                            </div>
                             <p className="text-neutral-500 truncate max-w-[280px]">
                               {item.client} ({item.year})
                             </p>
@@ -1617,7 +1741,171 @@ export default function AdminPanel({
                 </div>
               </section>
 
-              {/* 3. Contact Information Editor */}
+              {/* 3. Rate Card (제작 단가표) Settings */}
+              <section className="space-y-4 border-t border-neutral-100 pt-6">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-neutral-950" />
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-900">
+                    제작 단가표 (Rate Card) 설정
+                  </h3>
+                </div>
+
+                <p className="text-[11px] text-neutral-500 leading-relaxed">
+                  클라이언트에게 안내할 단가표 파일(PDF 또는 이미지)을 업로드하거나, 클라우드 링크(구글 드라이브, 노션, Firebase 등)를 직접 등록할 수 있습니다.
+                </p>
+
+                <div className="space-y-4 text-xs">
+                  {/* File Upload / Drag-and-drop Area */}
+                  <div>
+                    <label className="block text-neutral-600 font-medium mb-1.5">
+                      단가표 파일 업로드 (PDF / 이미지)
+                    </label>
+
+                    {uploadedRateCardName || settingsForm.rateCardUrl ? (
+                      /* File uploaded card */
+                      <div className="flex items-center justify-between p-4 border border-neutral-200 bg-neutral-50">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="p-2 bg-neutral-100 border border-neutral-200 shrink-0">
+                            <CreditCard className="w-4 h-4 text-neutral-800" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-bold text-neutral-900 truncate">
+                                {uploadedRateCardName || settingsForm.rateCardFileName || "제작 단가표"}
+                              </p>
+                              <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold">
+                                등록 완료
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-neutral-400 font-mono truncate">
+                              {settingsForm.rateCardUrl?.startsWith("indexeddb:") ? "로컬 저장소 연동됨" : (settingsForm.rateCardUrl || "클라우드 연동됨")}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          {settingsForm.rateCardUrl && (
+                            <a
+                              href={settingsForm.rateCardUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2.5 py-1.5 text-[10px] font-bold border border-neutral-200 bg-white hover:bg-neutral-100 flex items-center gap-1 transition-colors"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>확인</span>
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => rateCardFileInputRef.current?.click()}
+                            className="px-2.5 py-1.5 text-[10px] font-bold border border-neutral-200 bg-white hover:bg-neutral-100 uppercase transition-colors"
+                          >
+                            교체
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleRateCardFileDelete}
+                            className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 border border-neutral-100 hover:border-red-200 transition-all"
+                            title="단가표 삭제"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Drag & drop zone */
+                      <div
+                        onDragOver={(e) => { e.preventDefault(); setIsRateCardDragging(true); }}
+                        onDragLeave={() => setIsRateCardDragging(false)}
+                        onDrop={async (e) => {
+                          e.preventDefault();
+                          setIsRateCardDragging(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) await processRateCardUpload(file);
+                        }}
+                        onClick={() => rateCardFileInputRef.current?.click()}
+                        className={`border-2 border-dashed p-6 text-center cursor-pointer transition-all ${
+                          isRateCardDragging
+                            ? "border-black bg-neutral-50 scale-[0.99]"
+                            : "border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50/50"
+                        }`}
+                      >
+                        <Upload className="w-6 h-6 mx-auto mb-2 text-neutral-400" />
+                        <p className="font-bold text-neutral-800">
+                          단가표 파일(PDF, 이미지)을 드래그하거나 클릭하여 업로드하세요.
+                        </p>
+                        <p className="text-[10px] text-neutral-400 mt-1">
+                          {rateCardUploadProgress || "클라우드 스토리지에 자동 저장되어 방문자에게 다운로드/열람 제공"}
+                        </p>
+                      </div>
+                    )}
+
+                    <input
+                      ref={rateCardFileInputRef}
+                      type="file"
+                      accept="application/pdf,image/*"
+                      onChange={handleRateCardFileUpload}
+                      className="hidden"
+                    />
+                  </div>
+
+                  <form onSubmit={handleSaveSettings} className="space-y-3">
+                    {/* Direct Cloud URL Input */}
+                    <div>
+                      <label className="block text-neutral-600 font-medium mb-1">
+                        또는 클라우드 링크 URL 직접 입력 (Firebase, 구글 드라이브, 노션 등)
+                      </label>
+                      <input
+                        type="text"
+                        value={settingsForm.rateCardUrl === "indexeddb:rate_card_file" ? "" : (settingsForm.rateCardUrl || "")}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, rateCardUrl: e.target.value })}
+                        className="w-full px-3 py-2 border border-neutral-200 rounded-none focus:outline-none focus:border-black font-mono"
+                        placeholder="https://firebasestorage.googleapis.com/... 또는 외부 링크"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-neutral-600 font-medium mb-1">
+                          단가표 타이틀
+                        </label>
+                        <input
+                          type="text"
+                          value={settingsForm.rateCardTitle || ""}
+                          onChange={(e) =>
+                            setSettingsForm({ ...settingsForm, rateCardTitle: e.target.value })
+                          }
+                          className="w-full px-3 py-2 border border-neutral-200 rounded-none focus:outline-none focus:border-black"
+                          placeholder="2026 제작 단가표 (Rate Card)"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-neutral-600 font-medium mb-1">
+                          안내 문구 (부제)
+                        </label>
+                        <input
+                          type="text"
+                          value={settingsForm.rateCardNote || ""}
+                          onChange={(e) =>
+                            setSettingsForm({ ...settingsForm, rateCardNote: e.target.value })
+                          }
+                          className="w-full px-3 py-2 border border-neutral-200 rounded-none focus:outline-none focus:border-black"
+                          placeholder="프로젝트 규모 및 제작 범위에 따른 단가 안내"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="flex items-center justify-center gap-1.5 w-full bg-black hover:bg-neutral-900 text-white py-3.5 rounded-none font-bold uppercase tracking-widest text-xs transition-colors cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      단가표 설정 저장
+                    </button>
+                  </form>
+                </div>
+              </section>
+
+              {/* 4. Contact Information Editor */}
               <section className="space-y-4 border-t border-neutral-100 pt-6">
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4 text-neutral-950" />

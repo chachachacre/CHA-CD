@@ -11,7 +11,12 @@ import {
   Lock,
   ArrowUpRight,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  FileText,
+  CreditCard,
+  Eye,
+  X,
+  Download
 } from "lucide-react";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "./types";
 import {
@@ -21,7 +26,7 @@ import {
 } from "./data";
 import VideoModal from "./components/VideoModal";
 import AdminPanel from "./components/AdminPanel";
-import { getPDF, useMediaUrl } from "./pdfStorage";
+import { getPDF, getMediaFile, useMediaUrl } from "./pdfStorage";
 import { ResolvedImage } from "./components/ResolvedImage";
 import { db, syncAllPortfolioItemsToFirestore, saveContactInfoToFirestore, savePortfolioSettingsToFirestore, syncStorageUrlsToFirestore, syncPdfUrlToFirestore } from "./firebase";
 import { collection, doc, onSnapshot, setDoc, query, orderBy, writeBatch } from "firebase/firestore";
@@ -162,6 +167,8 @@ export default function App() {
   }, []);
 
   const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
+  const [localRateCardUrl, setLocalRateCardUrl] = useState<string | null>(null);
+  const [isRateCardModalOpen, setIsRateCardModalOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -193,6 +200,50 @@ export default function App() {
     };
   }, [portfolioSettings]);
 
+  useEffect(() => {
+    let active = true;
+    let url: string | null = null;
+
+    const loadRateCardFile = async () => {
+      try {
+        if (portfolioSettings.rateCardUrl?.startsWith("indexeddb:")) {
+          const file = await getMediaFile("rate_card_file");
+          if (active && file) {
+            url = URL.createObjectURL(file);
+            setLocalRateCardUrl(url);
+          } else if (active) {
+            setLocalRateCardUrl(null);
+          }
+        } else {
+          if (active) setLocalRateCardUrl(null);
+        }
+      } catch (err) {
+        console.error("Error loading rate card file", err);
+      }
+    };
+
+    loadRateCardFile();
+
+    return () => {
+      active = false;
+      if (url) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [portfolioSettings.rateCardUrl]);
+
+  // Determine effective rate card link
+  const effectiveRateCardUrl = portfolioSettings.rateCardUrl && (portfolioSettings.rateCardUrl.startsWith("http") || portfolioSettings.rateCardUrl.startsWith("/uploads/"))
+    ? portfolioSettings.rateCardUrl
+    : (localRateCardUrl || portfolioSettings.rateCardUrl || "");
+
+  const isRateCardImage = Boolean(
+    effectiveRateCardUrl && (
+      /\.(png|jpe?g|webp|gif|svg)($|\?)/i.test(effectiveRateCardUrl) ||
+      effectiveRateCardUrl.startsWith("data:image/")
+    )
+  );
+
   // Scroll handler for smooth navigation
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id);
@@ -223,7 +274,7 @@ export default function App() {
       {/* 1. Header (Sticky Top with only PORTFOLIO and CONTACT links) */}
       <header className="sticky top-0 left-0 right-0 bg-white/80 backdrop-blur-md z-40 border-b border-neutral-100 transition-all duration-300">
         <div className="max-w-6xl mx-auto px-4 md:px-8 py-4 flex items-center justify-end">
-          {/* Navigation Links - Exactly PORTFOLIO and CONTACT as requested */}
+          {/* Navigation Links */}
           <nav className="flex items-center gap-6 md:gap-8" id="primary-navigation">
             <button
               onClick={() => scrollToSection("portfolio-section")}
@@ -231,6 +282,13 @@ export default function App() {
               id="nav-portfolio"
             >
               Portfolio
+            </button>
+            <button
+              onClick={() => scrollToSection("ratecard-section")}
+              className="text-xs font-bold tracking-widest text-neutral-900 hover:underline decoration-2 underline-offset-8 transition-all uppercase py-1 cursor-pointer"
+              id="nav-ratecard"
+            >
+              Rate Card
             </button>
             <button
               onClick={() => scrollToSection("contact-section")}
@@ -343,45 +401,119 @@ export default function App() {
           )}
         </section>
 
-        {/* 3. Portfolio PDF Download Section */}
+        {/* 3. Portfolio & Rate Card (단가표) Document Hub */}
         <section className="mt-28 py-16 border-t border-b border-neutral-100 scroll-mt-24" id="portfolio-section">
-          <div className="max-w-xl mx-auto text-center space-y-6">
-            <div className="space-y-2">
-              <h2 className="text-3xl font-bold font-display tracking-tight text-neutral-950">
-                CHA CD PORTFOLIO
-              </h2>
-              <p className="text-sm text-neutral-500 leading-relaxed font-light">
-                브랜드별 주요 프로젝트와 영상 제작 이력을 확인하실 수 있습니다.
-              </p>
-            </div>
+          <div className="max-w-5xl mx-auto px-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 items-stretch">
+              
+              {/* Card 1: Portfolio PDF */}
+              <div className="flex flex-col justify-between p-8 border border-neutral-200 bg-neutral-50/50 text-center space-y-6">
+                <div className="space-y-3">
+                  <div className="inline-flex items-center justify-center p-3 bg-black text-white rounded-none mx-auto">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <h2 className="text-2xl font-bold font-display tracking-tight text-neutral-950">
+                    CHA CD PORTFOLIO
+                  </h2>
+                  <p className="text-xs text-neutral-600 leading-relaxed font-light">
+                    브랜드별 주요 프로젝트와 TVCF, AI 영상, 디지털 제작 이력을 확인하실 수 있습니다.
+                  </p>
+                </div>
 
-            {portfolioSettings.pdfUrl || localPdfUrl ? (
-              <a
-                href={getCacheBustedUrl(
-                  portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("http")
-                    ? portfolioSettings.pdfUrl
-                    : (localPdfUrl || portfolioSettings.pdfUrl)
-                )}
-                download={portfolioSettings.pdfFileName}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2 bg-black hover:bg-neutral-900 text-white font-bold tracking-widest text-xs uppercase px-8 py-4.5 transition-all cursor-pointer"
-                id="portfolio-download-link"
-              >
-                <span>📄 TVCF · Digital Content · Print Portfolio</span>
-                <ArrowUpRight className="w-4 h-4 shrink-0 text-neutral-400" />
-              </a>
-            ) : (
-              <div className="inline-block px-6 py-4 bg-neutral-50 border border-neutral-100 text-neutral-400 text-xs font-bold uppercase tracking-widest">
-                등록된 포트폴리오 파일이 없습니다
+                <div className="space-y-2 pt-2">
+                  {portfolioSettings.pdfUrl || localPdfUrl ? (
+                    <a
+                      href={getCacheBustedUrl(
+                        portfolioSettings.pdfUrl && (portfolioSettings.pdfUrl.startsWith("http") || portfolioSettings.pdfUrl.startsWith("/uploads/"))
+                          ? portfolioSettings.pdfUrl
+                          : (localPdfUrl || portfolioSettings.pdfUrl)
+                      )}
+                      download={portfolioSettings.pdfFileName || "CHA_CD_Portfolio.pdf"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-2 w-full bg-black hover:bg-neutral-900 text-white font-bold tracking-widest text-xs uppercase py-4 transition-all cursor-pointer"
+                      id="portfolio-download-link"
+                    >
+                      <span>📄 포트폴리오 PDF 다운로드</span>
+                      <ArrowUpRight className="w-4 h-4 shrink-0 text-neutral-400" />
+                    </a>
+                  ) : (
+                    <div className="inline-block w-full py-4 bg-neutral-100 border border-neutral-200 text-neutral-400 text-xs font-bold uppercase tracking-widest">
+                      등록된 포트폴리오 파일이 없습니다
+                    </div>
+                  )}
+
+                  {portfolioSettings.pdfFileName && (
+                    <p className="text-[10px] text-neutral-400 font-mono truncate">
+                      파일명: {portfolioSettings.pdfFileName}
+                    </p>
+                  )}
+                </div>
               </div>
-            )}
 
-            {portfolioSettings.pdfFileName && (
-              <p className="text-[10px] text-neutral-400 font-mono">
-                파일명: {portfolioSettings.pdfFileName}
-              </p>
-            )}
+              {/* Card 2: Rate Card (제작 단가표) */}
+              <div className="flex flex-col justify-between p-8 border border-neutral-200 bg-neutral-50/50 text-center space-y-6 scroll-mt-24" id="ratecard-section">
+                <div className="space-y-3">
+                  <div className="inline-flex items-center justify-center p-3 bg-black text-white rounded-none mx-auto">
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <h2 className="text-2xl font-bold font-display tracking-tight text-neutral-950">
+                    {portfolioSettings.rateCardTitle || "제작 단가표 (RATE CARD)"}
+                  </h2>
+                  <p className="text-xs text-neutral-600 leading-relaxed font-light">
+                    {portfolioSettings.rateCardNote || "AI 영상 제작, 실사 광고, 디지털 콘텐츠 제작 단가 및 가이드라인입니다."}
+                  </p>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  {effectiveRateCardUrl ? (
+                    isRateCardImage ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsRateCardModalOpen(true)}
+                        className="inline-flex items-center justify-center gap-2 w-full bg-black hover:bg-neutral-900 text-white font-bold tracking-widest text-xs uppercase py-4 transition-all cursor-pointer"
+                        id="rate-card-view-btn"
+                      >
+                        <span>💳 제작 단가표 확인하기</span>
+                        <Eye className="w-4 h-4 shrink-0 text-neutral-400" />
+                      </button>
+                    ) : (
+                      <a
+                        href={effectiveRateCardUrl}
+                        download={portfolioSettings.rateCardFileName || "CHA_CD_Rate_Card"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-2 w-full bg-black hover:bg-neutral-900 text-white font-bold tracking-widest text-xs uppercase py-4 transition-all cursor-pointer"
+                        id="rate-card-download-link"
+                      >
+                        <span>💳 제작 단가표 (Rate Card) 열람</span>
+                        <ArrowUpRight className="w-4 h-4 shrink-0 text-neutral-400" />
+                      </a>
+                    )
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => scrollToSection("contact-section")}
+                      className="inline-flex items-center justify-center gap-1.5 w-full bg-neutral-200 hover:bg-neutral-300 text-neutral-800 font-bold tracking-widest text-xs uppercase py-4 transition-all cursor-pointer"
+                    >
+                      <span>단가 및 맞춤 견적 문의하기</span>
+                      <ArrowUpRight className="w-3.5 h-3.5 text-neutral-600" />
+                    </button>
+                  )}
+
+                  {portfolioSettings.rateCardFileName ? (
+                    <p className="text-[10px] text-neutral-400 font-mono truncate">
+                      파일명: {portfolioSettings.rateCardFileName}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-neutral-400 font-mono">
+                      프로젝트 규모에 따른 맞춤형 견적 안내
+                    </p>
+                  )}
+                </div>
+              </div>
+
+            </div>
           </div>
         </section>
 
@@ -518,7 +650,7 @@ export default function App() {
               {localPdfUrl || portfolioSettings.pdfUrl ? (
                 <a
                   href={getCacheBustedUrl(localPdfUrl || portfolioSettings.pdfUrl)}
-                  download={portfolioSettings.pdfFileName}
+                  download={portfolioSettings.pdfFileName || "CHA_CD_Portfolio.pdf"}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs font-bold border-b border-black uppercase tracking-wider hover:opacity-75 transition-opacity"
@@ -527,6 +659,33 @@ export default function App() {
                 </a>
               ) : (
                 <span className="text-xs text-neutral-400 font-bold uppercase tracking-wider">미등록</span>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold font-mono">Rate Card</p>
+              {effectiveRateCardUrl ? (
+                isRateCardImage ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsRateCardModalOpen(true)}
+                    className="text-xs font-bold border-b border-black uppercase tracking-wider hover:opacity-75 transition-opacity cursor-pointer"
+                  >
+                    제작 단가표 확인
+                  </button>
+                ) : (
+                  <a
+                    href={effectiveRateCardUrl}
+                    download={portfolioSettings.rateCardFileName || "CHA_CD_Rate_Card"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-bold border-b border-black uppercase tracking-wider hover:opacity-75 transition-opacity"
+                  >
+                    제작 단가표 열람
+                  </a>
+                )
+              ) : (
+                <span className="text-xs text-neutral-400 font-bold uppercase tracking-wider">협의 및 문의</span>
               )}
             </div>
           </div>
@@ -555,6 +714,61 @@ export default function App() {
 
         </div>
       </footer>
+
+      {/* Rate Card Image Lightbox Modal */}
+      <AnimatePresence>
+        {isRateCardModalOpen && effectiveRateCardUrl && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8" id="ratecard-modal">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.85 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsRateCardModalOpen(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-sm cursor-pointer"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative z-10 max-w-4xl w-full max-h-[90vh] bg-white p-4 md:p-6 flex flex-col shadow-2xl overflow-hidden border border-neutral-200"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-neutral-200 mb-3">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-black" />
+                  <h3 className="font-bold text-sm text-neutral-900 font-mono uppercase">
+                    {portfolioSettings.rateCardTitle || "제작 단가표 (Rate Card)"}
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={effectiveRateCardUrl}
+                    download={portfolioSettings.rateCardFileName || "CHA_CD_Rate_Card"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 text-neutral-800 hover:text-black border border-neutral-200 hover:bg-neutral-100 transition-colors text-xs flex items-center gap-1.5 font-bold font-mono"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">다운로드</span>
+                  </a>
+                  <button
+                    onClick={() => setIsRateCardModalOpen(false)}
+                    className="p-1.5 text-neutral-500 hover:text-black hover:bg-neutral-100 transition-colors cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-auto max-h-[calc(90vh-120px)] flex justify-center bg-neutral-50 p-2 border border-neutral-100">
+                <img
+                  src={effectiveRateCardUrl}
+                  alt="제작 단가표"
+                  className="max-w-full h-auto object-contain shadow-sm"
+                />
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Modals & Slide-overs */}
       <AnimatePresence>
