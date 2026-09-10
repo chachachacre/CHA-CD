@@ -22,13 +22,16 @@ import {
   AlertCircle,
   Cloud,
   Loader2,
-  CreditCard
+  CreditCard,
+  Download
 } from "lucide-react";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "../types";
 import { initialPortfolioItems } from "../data";
 import { savePDF, getPDF, deletePDF, saveMediaFile, getMediaFile, deleteMediaFile, useMediaUrl } from "../pdfStorage";
 import { ResolvedImage } from "./ResolvedImage";
 import { uploadToStorage, deleteFromStorage, syncStorageUrlsToFirestore, syncPdfUrlToFirestore, fileToDataUrl } from "../firebase";
+import RateCardModal from "./RateCardModal";
+import { downloadFile } from "../fileUtils";
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -54,6 +57,10 @@ export default function AdminPanel({
   const [password, setPassword] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loginError, setLoginError] = useState("");
+
+  // Rate card preview modal state
+  const [isRateCardPreviewOpen, setIsRateCardPreviewOpen] = useState(false);
+  const [isDownloadingAdminRateCard, setIsDownloadingAdminRateCard] = useState(false);
 
   // Cloud migration states
   const [isMigrating, setIsMigrating] = useState(false);
@@ -1784,15 +1791,37 @@ export default function AdminPanel({
                         </div>
                         <div className="flex gap-2 shrink-0">
                           {settingsForm.rateCardUrl && (
-                            <a
-                              href={settingsForm.rateCardUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-2.5 py-1.5 text-[10px] font-bold border border-neutral-200 bg-white hover:bg-neutral-100 flex items-center gap-1 transition-colors"
+                            <button
+                              type="button"
+                              onClick={() => setIsRateCardPreviewOpen(true)}
+                              className="px-2.5 py-1.5 text-[10px] font-bold border border-neutral-200 bg-white hover:bg-neutral-100 flex items-center gap-1 transition-colors cursor-pointer"
+                              title="단가표 열람/미리보기"
                             >
                               <Eye className="w-3 h-3" />
-                              <span>확인</span>
-                            </a>
+                              <span>열람</span>
+                            </button>
+                          )}
+                          {settingsForm.rateCardUrl && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setIsDownloadingAdminRateCard(true);
+                                try {
+                                  await downloadFile(
+                                    settingsForm.rateCardUrl,
+                                    settingsForm.rateCardFileName || "CHA_CD_Rate_Card"
+                                  );
+                                } finally {
+                                  setIsDownloadingAdminRateCard(false);
+                                }
+                              }}
+                              disabled={isDownloadingAdminRateCard}
+                              className="px-2.5 py-1.5 text-[10px] font-bold border border-neutral-200 bg-white hover:bg-neutral-100 flex items-center gap-1 transition-colors cursor-pointer"
+                              title="단가표 다운로드"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>{isDownloadingAdminRateCard ? "..." : "다운로드"}</span>
+                            </button>
                           )}
                           <button
                             type="button"
@@ -2015,6 +2044,15 @@ export default function AdminPanel({
           )}
         </div>
       </motion.div>
+
+      {/* Rate Card Preview Modal in Admin */}
+      <RateCardModal
+        isOpen={isRateCardPreviewOpen}
+        onClose={() => setIsRateCardPreviewOpen(false)}
+        rawUrl={settingsForm.rateCardUrl || "/uploads/CHA_CD_Rate_Card_2026.pdf"}
+        fileName={settingsForm.rateCardFileName || "CHA_CD_Rate_Card_2026.pdf"}
+        title={settingsForm.rateCardTitle || "제작 단가표 (Rate Card)"}
+      />
     </div>
   );
 }

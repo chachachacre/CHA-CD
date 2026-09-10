@@ -69,6 +69,28 @@ async function startServer() {
     }
   });
 
+  // API Route: Force Download with correct attachment header
+  app.get("/api/download", (req, res) => {
+    try {
+      const fileParam = req.query.file as string;
+      const downloadName = (req.query.name as string) || "download";
+      if (!fileParam) {
+        return res.status(400).json({ error: "Missing file parameter" });
+      }
+      const safeFilename = path.basename(fileParam.replace(/^\/uploads\//, ""));
+      const filePath = path.join(uploadsDir, safeFilename);
+
+      if (fs.existsSync(filePath)) {
+        return res.download(filePath, downloadName);
+      } else {
+        return res.status(404).json({ error: "File not found on server" });
+      }
+    } catch (err) {
+      console.error("[Download API] Error:", err);
+      return res.status(500).json({ error: "Server download failed" });
+    }
+  });
+
   // Health check endpoint
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
