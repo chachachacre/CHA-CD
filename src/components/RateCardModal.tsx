@@ -142,8 +142,8 @@ export default function RateCardModal({
               onClick={handleDownload}
               disabled={isDownloading}
               className="px-3 py-2 bg-black hover:bg-neutral-800 text-white text-xs font-bold font-mono tracking-wider flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="단가표 파일 다운로드"
-              id="modal-ratecard-download-btn"
+              title={`${displayTitle} 파일 다운로드`}
+              id="modal-document-download-btn"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{isDownloading ? "다운로드 중..." : "다운로드"}</span>
@@ -176,14 +176,14 @@ export default function RateCardModal({
           {isLoading ? (
             <div className="text-center space-y-3 py-16">
               <div className="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="text-xs font-mono text-neutral-600">단가표를 불러오는 중입니다...</p>
+              <p className="text-xs font-mono text-neutral-600">{displayTitle} 문서를 불러오는 중입니다...</p>
             </div>
           ) : !resolvedUrl ? (
             <div className="text-center space-y-3 py-16 bg-white p-8 border border-neutral-200 max-w-md">
               <AlertCircle className="w-8 h-8 text-neutral-400 mx-auto" />
-              <p className="text-sm font-bold text-neutral-900">단가표 파일을 불러올 수 없습니다</p>
+              <p className="text-sm font-bold text-neutral-900">{displayTitle} 파일을 불러올 수 없습니다</p>
               <p className="text-xs text-neutral-500 leading-relaxed">
-                파일 링크가 올바르지 않거나 아직 업로드되지 않았습니다. 관리자 콘솔에서 단가표를 다시 업로드해 주세요.
+                파일 링크가 올바르지 않거나 아직 등록되지 않았습니다. 관리자 콘솔에서 파일을 다시 업로드해 주세요.
               </p>
             </div>
           ) : isImage ? (
@@ -200,12 +200,12 @@ export default function RateCardModal({
             <div className="w-full h-[76vh] flex flex-col bg-white border border-neutral-200 shadow-sm overflow-hidden">
               <iframe
                 src={`${resolvedUrl}#toolbar=1&navpanes=0`}
-                title="제작 단가표 PDF"
+                title={`${displayTitle} PDF`}
                 className="w-full flex-1 border-0"
               />
               <div className="p-3 bg-neutral-50 border-t border-neutral-200 flex items-center justify-between text-xs">
                 <span className="text-neutral-500 font-mono text-[11px]">
-                  PDF 뷰어가 보이지 않을 경우 [다운로드] 버튼을 이용해 주세요.
+                  PDF 뷰어가 브라우저에서 보이지 않을 경우 [다운로드] 버튼을 이용해 주세요.
                 </span>
                 <button
                   type="button"
@@ -250,3 +250,5 @@ export default function RateCardModal({
     </div>
   );
 }
+
+export { RateCardModal as PdfViewerModal };

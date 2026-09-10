@@ -62,6 +62,10 @@ export default function AdminPanel({
   const [isRateCardPreviewOpen, setIsRateCardPreviewOpen] = useState(false);
   const [isDownloadingAdminRateCard, setIsDownloadingAdminRateCard] = useState(false);
 
+  // Portfolio preview modal state
+  const [isPortfolioPreviewOpen, setIsPortfolioPreviewOpen] = useState(false);
+  const [isDownloadingAdminPdf, setIsDownloadingAdminPdf] = useState(false);
+
   // Cloud migration states
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState("");
@@ -1629,34 +1633,72 @@ export default function AdminPanel({
                       포트폴리오 PDF 파일 업로드 / 관리
                     </label>
 
-                    {uploadedFileName ? (
+                    {uploadedFileName || settingsForm.pdfUrl ? (
                       /* File uploaded card */
                       <div className="flex items-center justify-between p-4 border border-neutral-200 bg-neutral-50">
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="p-2 bg-neutral-100 border border-neutral-200">
+                          <div className="p-2 bg-neutral-100 border border-neutral-200 shrink-0">
                             <FileText className="w-4 h-4 text-neutral-800" />
                           </div>
                           <div className="min-w-0">
-                            <p className="font-bold text-neutral-900 truncate">
-                              {uploadedFileName}
-                            </p>
-                            <p className="text-[10px] text-neutral-400 font-mono">
-                              업로드 완료 (인터넷 연결 없이도 상시 다운로드 가능)
+                            <div className="flex items-center gap-2">
+                              <p className="font-bold text-neutral-900 truncate">
+                                {uploadedFileName || settingsForm.pdfFileName || "포트폴리오 PDF"}
+                              </p>
+                              <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold shrink-0">
+                                등록 완료
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-neutral-400 font-mono truncate">
+                              {settingsForm.pdfUrl?.startsWith("indexeddb:") ? "로컬 저장소 연동됨" : (settingsForm.pdfUrl || "클라우드 연동됨")}
                             </p>
                           </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 shrink-0">
+                          {(settingsForm.pdfUrl || uploadedFileName) && (
+                            <button
+                              type="button"
+                              onClick={() => setIsPortfolioPreviewOpen(true)}
+                              className="px-2.5 py-1.5 text-[10px] font-bold border border-neutral-200 bg-white hover:bg-neutral-100 flex items-center gap-1 transition-colors cursor-pointer"
+                              title="포트폴리오 열람/미리보기"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>미리보기</span>
+                            </button>
+                          )}
+                          {(settingsForm.pdfUrl || uploadedFileName) && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setIsDownloadingAdminPdf(true);
+                                try {
+                                  await downloadFile(
+                                    settingsForm.pdfUrl,
+                                    settingsForm.pdfFileName || "CHA_CD_Portfolio.pdf"
+                                  );
+                                } finally {
+                                  setIsDownloadingAdminPdf(false);
+                                }
+                              }}
+                              disabled={isDownloadingAdminPdf}
+                              className="px-2.5 py-1.5 text-[10px] font-bold border border-neutral-200 bg-white hover:bg-neutral-100 flex items-center gap-1 transition-colors cursor-pointer"
+                              title="포트폴리오 다운로드"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>{isDownloadingAdminPdf ? "..." : "다운로드"}</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
-                            className="px-3 py-1.5 text-[10px] font-bold border border-neutral-200 hover:bg-neutral-100 uppercase transition-colors"
+                            className="px-2.5 py-1.5 text-[10px] font-bold border border-neutral-200 bg-white hover:bg-neutral-100 uppercase transition-colors cursor-pointer"
                           >
                             교체
                           </button>
                           <button
                             type="button"
                             onClick={handleFileDelete}
-                            className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 border border-neutral-100 hover:border-red-200 transition-all"
+                            className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 border border-neutral-100 hover:border-red-200 transition-all cursor-pointer"
                             title="파일 삭제"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -2050,6 +2092,15 @@ export default function AdminPanel({
           )}
         </div>
       </motion.div>
+
+      {/* Portfolio Preview Modal in Admin */}
+      <RateCardModal
+        isOpen={isPortfolioPreviewOpen}
+        onClose={() => setIsPortfolioPreviewOpen(false)}
+        rawUrl={settingsForm.pdfUrl || "/uploads/CHA_CD_Rate_Card_2026.pdf"}
+        fileName={settingsForm.pdfFileName || "CHA_CD_Portfolio_2026.pdf"}
+        title="CHA CD 포트폴리오 (Portfolio)"
+      />
 
       {/* Rate Card Preview Modal in Admin */}
       <RateCardModal

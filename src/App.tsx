@@ -186,6 +186,7 @@ export default function App() {
   const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
   const [localRateCardUrl, setLocalRateCardUrl] = useState<string | null>(null);
   const [isRateCardModalOpen, setIsRateCardModalOpen] = useState(false);
+  const [isPortfolioModalOpen, setIsPortfolioModalOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -248,6 +249,28 @@ export default function App() {
       }
     };
   }, [portfolioSettings.rateCardUrl]);
+
+  // Determine effective portfolio PDF link (supporting Cloud URLs, server /uploads/, IndexedDB local cache)
+  const defaultPdfUrl = "/uploads/CHA_CD_Rate_Card_2026.pdf"; // safe fallback
+  const defaultPdfName = "CHA_CD_Portfolio_2026.pdf";
+
+  const cleanedSettingPdfUrl = cleanFileUrl(portfolioSettings.pdfUrl);
+  const effectivePdfUrl = cleanedSettingPdfUrl && (cleanedSettingPdfUrl.startsWith("http") || cleanedSettingPdfUrl.startsWith("/uploads/"))
+    ? cleanedSettingPdfUrl
+    : (localPdfUrl || (cleanedSettingPdfUrl && !cleanedSettingPdfUrl.startsWith("indexeddb:") ? cleanedSettingPdfUrl : defaultPdfUrl));
+
+  const effectivePdfName = portfolioSettings.pdfFileName || defaultPdfName;
+
+  const [isDownloadingPortfolio, setIsDownloadingPortfolio] = useState(false);
+
+  const handlePortfolioDownload = async () => {
+    setIsDownloadingPortfolio(true);
+    try {
+      await downloadFile(effectivePdfUrl, effectivePdfName);
+    } finally {
+      setIsDownloadingPortfolio(false);
+    }
+  };
 
   // Determine effective rate card link (supporting Cloud URLs, server /uploads/, IndexedDB local cache, or default sample)
   const defaultRateCardUrl = "/uploads/CHA_CD_Rate_Card_2026.pdf";
@@ -447,34 +470,33 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="space-y-2 pt-2">
-                  {portfolioSettings.pdfUrl || localPdfUrl ? (
-                    <a
-                      href={getCacheBustedUrl(
-                        portfolioSettings.pdfUrl && (portfolioSettings.pdfUrl.startsWith("http") || portfolioSettings.pdfUrl.startsWith("/uploads/"))
-                          ? portfolioSettings.pdfUrl
-                          : (localPdfUrl || portfolioSettings.pdfUrl)
-                      )}
-                      download={portfolioSettings.pdfFileName || "CHA_CD_Portfolio.pdf"}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center gap-2 w-full bg-black hover:bg-neutral-900 text-white font-bold tracking-widest text-xs uppercase py-4 transition-all cursor-pointer"
-                      id="portfolio-download-link"
-                    >
-                      <span>📄 포트폴리오 PDF 다운로드</span>
-                      <ArrowUpRight className="w-4 h-4 shrink-0 text-neutral-400" />
-                    </a>
-                  ) : (
-                    <div className="inline-block w-full py-4 bg-neutral-100 border border-neutral-200 text-neutral-400 text-xs font-bold uppercase tracking-widest">
-                      등록된 포트폴리오 파일이 없습니다
-                    </div>
-                  )}
+                <div className="space-y-2.5 pt-2">
+                  {/* Primary: View / Preview in in-app modal */}
+                  <button
+                    type="button"
+                    onClick={() => setIsPortfolioModalOpen(true)}
+                    className="inline-flex items-center justify-center gap-2 w-full bg-black hover:bg-neutral-900 text-white font-bold tracking-widest text-xs uppercase py-3.5 transition-all cursor-pointer shadow-sm"
+                    id="portfolio-view-btn"
+                  >
+                    <span>📄 포트폴리오 열람 / 미리보기</span>
+                    <Eye className="w-4 h-4 shrink-0 text-neutral-400" />
+                  </button>
 
-                  {portfolioSettings.pdfFileName && (
-                    <p className="text-[10px] text-neutral-400 font-mono truncate">
-                      파일명: {portfolioSettings.pdfFileName}
-                    </p>
-                  )}
+                  {/* Secondary: Direct File Download with forced download header */}
+                  <button
+                    type="button"
+                    onClick={handlePortfolioDownload}
+                    disabled={isDownloadingPortfolio}
+                    className="inline-flex items-center justify-center gap-2 w-full border border-neutral-300 bg-white hover:bg-neutral-100 text-neutral-900 font-bold tracking-widest text-xs uppercase py-3 transition-all cursor-pointer"
+                    id="portfolio-download-btn"
+                  >
+                    <Download className="w-4 h-4 shrink-0 text-neutral-800" />
+                    <span>{isDownloadingPortfolio ? "다운로드 중..." : "포트폴리오 PDF 다운로드"}</span>
+                  </button>
+
+                  <p className="text-[10px] text-neutral-500 font-mono truncate">
+                    파일명: {effectivePdfName}
+                  </p>
                 </div>
               </div>
 
@@ -719,6 +741,15 @@ export default function App() {
 
         </div>
       </footer>
+
+      {/* Portfolio Unified Viewer & Downloader Modal */}
+      <RateCardModal
+        isOpen={isPortfolioModalOpen}
+        onClose={() => setIsPortfolioModalOpen(false)}
+        rawUrl={effectivePdfUrl}
+        fileName={effectivePdfName}
+        title="CHA CD 포트폴리오 (Portfolio)"
+      />
 
       {/* Rate Card Unified Viewer & Downloader Modal */}
       <RateCardModal
