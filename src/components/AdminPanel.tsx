@@ -31,7 +31,7 @@ import { savePDF, getPDF, deletePDF, saveMediaFile, getMediaFile, deleteMediaFil
 import { ResolvedImage } from "./ResolvedImage";
 import { uploadToStorage, deleteFromStorage, syncStorageUrlsToFirestore, syncPdfUrlToFirestore, fileToDataUrl } from "../firebase";
 import RateCardModal from "./RateCardModal";
-import { downloadFile } from "../fileUtils";
+import { downloadFile, cleanFileUrl } from "../fileUtils";
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -846,7 +846,7 @@ export default function AdminPanel({
           }
         );
         if (cloudUrl) {
-          downloadUrl = cloudUrl;
+          downloadUrl = cleanFileUrl(cloudUrl);
         }
       } catch (cloudErr) {
         console.warn("Rate card cloud upload error, using local fallback:", cloudErr);
@@ -855,7 +855,7 @@ export default function AdminPanel({
       const updatedSettings: PortfolioSettings = {
         ...settingsForm,
         rateCardFileName: file.name,
-        rateCardUrl: downloadUrl,
+        rateCardUrl: cleanFileUrl(downloadUrl),
         rateCardTitle: settingsForm.rateCardTitle || "제작 단가표 (Rate Card)",
       };
       setSettingsForm(updatedSettings);
@@ -921,7 +921,13 @@ export default function AdminPanel({
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateSettings(settingsForm);
+    const cleanedSettings: PortfolioSettings = {
+      ...settingsForm,
+      rateCardUrl: cleanFileUrl(settingsForm.rateCardUrl),
+      pdfUrl: cleanFileUrl(settingsForm.pdfUrl),
+    };
+    setSettingsForm(cleanedSettings);
+    onUpdateSettings(cleanedSettings);
     triggerSaveNotification("포트폴리오 설정이 저장되었습니다.");
   };
 
@@ -1886,7 +1892,7 @@ export default function AdminPanel({
                       <input
                         type="text"
                         value={settingsForm.rateCardUrl === "indexeddb:rate_card_file" ? "" : (settingsForm.rateCardUrl || "")}
-                        onChange={(e) => setSettingsForm({ ...settingsForm, rateCardUrl: e.target.value })}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, rateCardUrl: cleanFileUrl(e.target.value) })}
                         className="w-full px-3 py-2 border border-neutral-200 rounded-none focus:outline-none focus:border-black font-mono"
                         placeholder="https://firebasestorage.googleapis.com/... 또는 외부 링크"
                       />

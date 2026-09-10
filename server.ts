@@ -69,25 +69,72 @@ async function startServer() {
     }
   });
 
-  // API Route: Force Download with correct attachment header
-  app.get("/api/download", (req, res) => {
+  // API Route: Force Download with correct attachment header and remote proxy capability
+  app.get("/api/download", async (req, res) => {
     try {
-      const fileParam = req.query.file as string;
-      const downloadName = (req.query.name as string) || "download";
+      let fileParam = ((req.query.file || req.query.url) as string) || "";
+      let downloadName = (req.query.name as string) || "CHA_CD_Rate_Card.pdf";
+
       if (!fileParam) {
         return res.status(400).json({ error: "Missing file parameter" });
       }
+
+      // Strip any browser extension prefixes (e.g. Adobe Acrobat chrome-extension://)
+      if (fileParam.includes("chrome-extension://")) {
+        fileParam = fileParam.replace(/^chrome-extension:\/\/[^/]+\//, "");
+      }
+
+      // Ensure downloadName has .pdf extension if it looks like a PDF
+      if (fileParam.includes(".pdf") && !downloadName.toLowerCase().endsWith(".pdf")) {
+        downloadName = `${downloadName}.pdf`;
+      }
+
+      const encodedFilename = encodeURIComponent(downloadName).replace(/['()]/g, escape).replace(/\*/g, "%2A");
+      const asciiFallback = downloadName.replace(/[^\x20-\x7E]/g, "_");
+
+      // 1. Remote URL (e.g. Firebase Storage, Cloudinary, AWS S3)
+      if (fileParam.startsWith("http://") || fileParam.startsWith("https://")) {
+        console.log(`[Download API] Proxying remote file download: ${fileParam} as "${downloadName}"`);
+        const remoteRes = await fetch(fileParam);
+        if (!remoteRes.ok) {
+          return res.status(remoteRes.status).send(`Failed to fetch remote file: ${remoteRes.statusText}`);
+        }
+
+        const contentType = remoteRes.headers.get("content-type") || "application/pdf";
+        res.setHeader("Content-Type", contentType);
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`
+        );
+
+        const arrayBuffer = await remoteRes.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        res.setHeader("Content-Length", buffer.length);
+        return res.end(buffer);
+      }
+
+      // 2. Local uploads directory
       const safeFilename = path.basename(fileParam.replace(/^\/uploads\//, ""));
       const filePath = path.join(uploadsDir, safeFilename);
 
       if (fs.existsSync(filePath)) {
-        return res.download(filePath, downloadName);
+        console.log(`[Download API] Serving local file: ${filePath} as "${downloadName}"`);
+        const stat = fs.statSync(filePath);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Length", stat.size);
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`
+        );
+        const fileStream = fs.createReadStream(filePath);
+        return fileStream.pipe(res);
       } else {
-        return res.status(404).json({ error: "File not found on server" });
+        console.warn(`[Download API] Local file not found: ${filePath}`);
+        return res.status(404).send("File not found on server");
       }
     } catch (err) {
       console.error("[Download API] Error:", err);
-      return res.status(500).json({ error: "Server download failed" });
+      return res.status(500).send("Server download failed");
     }
   });
 

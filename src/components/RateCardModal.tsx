@@ -10,7 +10,7 @@ import {
   AlertCircle,
   Maximize2
 } from "lucide-react";
-import { downloadFile, isImageFile, isPdfFile, resolveViewUrl } from "../fileUtils";
+import { downloadFile, isImageFile, isPdfFile, resolveViewUrl, cleanFileUrl } from "../fileUtils";
 
 interface RateCardModalProps {
   isOpen: boolean;
@@ -34,9 +34,10 @@ export default function RateCardModal({
   useEffect(() => {
     let active = true;
 
-    if (isOpen && rawUrl) {
+    const cleaned = cleanFileUrl(rawUrl);
+    if (isOpen && cleaned) {
       setIsLoading(true);
-      resolveViewUrl(rawUrl)
+      resolveViewUrl(cleaned)
         .then((url) => {
           if (active) {
             setResolvedUrl(url);
@@ -45,7 +46,7 @@ export default function RateCardModal({
         })
         .catch(() => {
           if (active) {
-            setResolvedUrl(rawUrl);
+            setResolvedUrl(cleaned);
             setIsLoading(false);
           }
         });
@@ -87,10 +88,9 @@ export default function RateCardModal({
   };
 
   const handleOpenExternal = () => {
-    if (resolvedUrl) {
-      window.open(resolvedUrl, "_blank", "noopener,noreferrer");
-    } else if (rawUrl) {
-      window.open(rawUrl, "_blank", "noopener,noreferrer");
+    const target = cleanFileUrl(resolvedUrl || rawUrl);
+    if (target) {
+      window.open(target, "_blank", "noopener,noreferrer");
     }
   };
 
