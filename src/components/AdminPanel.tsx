@@ -23,7 +23,8 @@ import {
   Cloud,
   Loader2,
   CreditCard,
-  Download
+  Download,
+  ExternalLink
 } from "lucide-react";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "../types";
 import { initialPortfolioItems } from "../data";
@@ -705,6 +706,8 @@ export default function AdminPanel({
   const checkUploadedFile = async () => {
     if (portfolioSettings.pdfFileName) {
       setUploadedFileName(portfolioSettings.pdfFileName);
+    } else if (portfolioSettings.pdfUrl) {
+      setUploadedFileName("등록된 포트폴리오 문서");
     } else {
       setUploadedFileName(null);
     }
@@ -925,14 +928,21 @@ export default function AdminPanel({
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanedPdfUrl = cleanFileUrl(settingsForm.pdfUrl);
+    const cleanedRateCardUrl = cleanFileUrl(settingsForm.rateCardUrl);
+
     const cleanedSettings: PortfolioSettings = {
       ...settingsForm,
-      rateCardUrl: cleanFileUrl(settingsForm.rateCardUrl),
-      pdfUrl: cleanFileUrl(settingsForm.pdfUrl),
+      rateCardUrl: cleanedRateCardUrl,
+      pdfUrl: cleanedPdfUrl,
+      pdfFileName: settingsForm.pdfFileName || (cleanedPdfUrl ? "CHA_CD_Portfolio_2026.pdf" : ""),
     };
     setSettingsForm(cleanedSettings);
     onUpdateSettings(cleanedSettings);
-    triggerSaveNotification("포트폴리오 설정이 저장되었습니다.");
+    if (cleanedSettings.pdfFileName || cleanedPdfUrl) {
+      setUploadedFileName(cleanedSettings.pdfFileName || "등록된 포트폴리오 문서");
+    }
+    triggerSaveNotification("포트폴리오 및 단가표 설정이 저장되었습니다.");
   };
 
   const triggerSaveNotification = (msg: string) => {
@@ -1617,20 +1627,24 @@ export default function AdminPanel({
                 </div>
               </section>
 
-              {/* 2. Portfolio PDF Link Settings */}
+              {/* 2. Portfolio PDF & Link Settings */}
               <section className="space-y-4 border-t border-neutral-100 pt-6">
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-neutral-950" />
                   <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-900">
-                    포트폴리오 다운로드 (PDF) 설정
+                    포트폴리오 파일 및 링크 설정
                   </h3>
                 </div>
+
+                <p className="text-[11px] text-neutral-500 leading-relaxed">
+                  방문자에게 제공할 포트폴리오 PDF 파일을 직접 업로드하거나, 구글 드라이브, 노션, Dropbox, Firebase 클라우드 스토리지 등의 외부 링크를 등록할 수 있습니다.
+                </p>
 
                 <div className="space-y-4 text-xs">
                   {/* File Upload / Drag-and-drop Area */}
                   <div>
-                    <label className="block text-neutral-600 font-medium mb-1.5">
-                      포트폴리오 PDF 파일 업로드 / 관리
+                    <label className="block text-neutral-700 font-bold mb-1.5">
+                      1. 포트폴리오 PDF 파일 직접 업로드
                     </label>
 
                     {uploadedFileName || settingsForm.pdfUrl ? (
@@ -1737,22 +1751,61 @@ export default function AdminPanel({
                     />
                   </div>
 
-                  <form onSubmit={handleSaveSettings} className="space-y-3">
-                    {/* Fallback external link */}
-                    {!uploadedFileName && (
-                      <div>
-                        <label className="block text-neutral-600 font-medium mb-1">
-                          또는 외부 PDF 링크 URL 연동
+                  <form onSubmit={handleSaveSettings} className="space-y-4 pt-1">
+                    {/* Dedicated Portfolio Link URL Field (Always accessible) */}
+                    <div className="p-3.5 bg-neutral-50 border border-neutral-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-neutral-800 font-bold">
+                          2. 포트폴리오 링크 URL 직접 등록
                         </label>
-                        <input
-                          type="text"
-                          value={settingsForm.pdfUrl === "local_indexeddb" ? "" : settingsForm.pdfUrl}
-                          onChange={(e) => setSettingsForm({ ...settingsForm, pdfUrl: e.target.value })}
-                          className="w-full px-3 py-2 border border-neutral-200 rounded-none focus:outline-none focus:border-black font-mono"
-                          placeholder="https://example.com/portfolio.pdf"
-                        />
+                        {settingsForm.pdfUrl &&
+                          !settingsForm.pdfUrl.startsWith("indexeddb:") &&
+                          settingsForm.pdfUrl !== "local_indexeddb" && (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setIsPortfolioPreviewOpen(true)}
+                                className="text-[10px] text-neutral-700 hover:text-black font-bold flex items-center gap-1 font-mono transition-colors cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3" />
+                                미리보기
+                              </button>
+                              <a
+                                href={cleanFileUrl(settingsForm.pdfUrl)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-neutral-500 hover:text-black hover:underline flex items-center gap-1 font-mono transition-colors cursor-pointer"
+                                title="새 창에서 원본 링크 열기"
+                              >
+                                <span>링크 확인</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          )}
                       </div>
-                    )}
+                      <input
+                        type="text"
+                        value={
+                          settingsForm.pdfUrl === "local_indexeddb" ||
+                          settingsForm.pdfUrl === "indexeddb:portfolio_pdf"
+                            ? ""
+                            : settingsForm.pdfUrl || ""
+                        }
+                        onChange={(e) => {
+                          const val = cleanFileUrl(e.target.value);
+                          setSettingsForm((prev) => ({
+                            ...prev,
+                            pdfUrl: val,
+                            pdfFileName: prev.pdfFileName || (val ? "CHA_CD_Portfolio_2026.pdf" : ""),
+                          }));
+                        }}
+                        className="w-full px-3 py-2.5 border border-neutral-200 rounded-none focus:outline-none focus:border-black font-mono text-xs bg-white"
+                        placeholder="예: https://drive.google.com/file/d/... 또는 노션/웹사이트 URL"
+                      />
+                      <p className="text-[10px] text-neutral-500 leading-relaxed">
+                        구글 드라이브(공유 링크), 노션, Dropbox, Firebase 클라우드 스토리지 등의 웹 주소를 등록할 수 있습니다. 방문자가 클릭 시 인앱 미리보기 또는 바로가기로 연결됩니다.
+                      </p>
+                    </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -1761,11 +1814,11 @@ export default function AdminPanel({
                         </label>
                         <input
                           type="text"
-                          value={settingsForm.pdfFileName}
+                          value={settingsForm.pdfFileName || ""}
                           onChange={(e) =>
                             setSettingsForm({ ...settingsForm, pdfFileName: e.target.value })
                           }
-                          className="w-full px-3 py-2 border border-neutral-200 rounded-none focus:outline-none focus:border-black"
+                          className="w-full px-3 py-2 border border-neutral-200 rounded-none focus:outline-none focus:border-black font-mono text-xs"
                           placeholder="CHA_CD_Portfolio_2026.pdf"
                         />
                       </div>
@@ -1779,7 +1832,7 @@ export default function AdminPanel({
                           onChange={(e) =>
                             setSettingsForm({ ...settingsForm, introduction: e.target.value })
                           }
-                          className="w-full px-3 py-2 border border-neutral-200 rounded-none focus:outline-none focus:border-black"
+                          className="w-full px-3 py-2 border border-neutral-200 rounded-none focus:outline-none focus:border-black text-xs"
                           placeholder="20년 실무 경험을 바탕으로..."
                         />
                       </div>

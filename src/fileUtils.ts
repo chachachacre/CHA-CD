@@ -50,6 +50,28 @@ export function isPdfFile(urlOrName: string | undefined, fallbackName?: string):
 }
 
 /**
+ * Checks if a URL is a Google Drive file link.
+ */
+export function isGoogleDriveUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  const cleaned = cleanFileUrl(url).toLowerCase();
+  return cleaned.includes("drive.google.com/file/d/") || cleaned.includes("docs.google.com");
+}
+
+/**
+ * Converts a Google Drive file URL to an embeddable preview URL.
+ */
+export function getGoogleDrivePreviewUrl(url: string | undefined): string {
+  if (!url) return "";
+  const cleaned = cleanFileUrl(url);
+  const match = cleaned.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (match) {
+    return `https://drive.google.com/file/d/${match[1]}/preview`;
+  }
+  return cleaned;
+}
+
+/**
  * Resolves any URL (including local indexeddb: keys and extension URLs) to a displayable browser URL.
  */
 export async function resolveViewUrl(url: string | undefined): Promise<string> {

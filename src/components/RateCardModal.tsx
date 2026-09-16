@@ -8,9 +8,18 @@ import {
   FileText,
   Eye,
   AlertCircle,
-  Maximize2
+  Maximize2,
+  Globe
 } from "lucide-react";
-import { downloadFile, isImageFile, isPdfFile, resolveViewUrl, cleanFileUrl } from "../fileUtils";
+import {
+  downloadFile,
+  isImageFile,
+  isPdfFile,
+  isGoogleDriveUrl,
+  getGoogleDrivePreviewUrl,
+  resolveViewUrl,
+  cleanFileUrl
+} from "../fileUtils";
 
 interface RateCardModalProps {
   isOpen: boolean;
@@ -74,9 +83,15 @@ export default function RateCardModal({
   if (!isOpen) return null;
 
   const isImage = isImageFile(resolvedUrl, fileName);
-  const isPdf = isPdfFile(resolvedUrl, fileName);
+  const isGDocs = isGoogleDriveUrl(resolvedUrl || rawUrl);
+  const isPdf = isPdfFile(resolvedUrl, fileName) || isGDocs;
+  const embedUrl = isGDocs
+    ? getGoogleDrivePreviewUrl(resolvedUrl || rawUrl)
+    : `${resolvedUrl}#toolbar=1&navpanes=0`;
+
   const displayTitle = title || "제작 단가표 (Rate Card)";
-  const displayFileName = fileName || (isPdf ? "Rate_Card.pdf" : isImage ? "Rate_Card.png" : "Rate_Card");
+  const isRateCard = displayTitle.includes("단가") || displayTitle.toLowerCase().includes("rate");
+  const displayFileName = fileName || (isPdf ? "Document.pdf" : isImage ? "Image.png" : "Document");
 
   const handleDownload = async () => {
     setIsDownloading(true);
@@ -117,7 +132,7 @@ export default function RateCardModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200 bg-white">
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 bg-black text-white shrink-0">
-              {isPdf ? <FileText className="w-4 h-4" /> : <CreditCard className="w-4 h-4" />}
+              {isRateCard ? <CreditCard className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -125,7 +140,7 @@ export default function RateCardModal({
                   {displayTitle}
                 </h3>
                 <span className="text-[10px] font-mono px-1.5 py-0.5 bg-neutral-100 text-neutral-600 font-bold border border-neutral-200 uppercase shrink-0">
-                  {isPdf ? "PDF" : isImage ? "IMAGE" : "DOC"}
+                  {isGDocs ? "DRIVE" : isPdf ? "PDF" : isImage ? "IMAGE" : "LINK"}
                 </span>
               </div>
               <p className="text-[11px] text-neutral-500 font-mono truncate">
@@ -196,51 +211,67 @@ export default function RateCardModal({
               />
             </div>
           ) : isPdf ? (
-            /* PDF Embedded Viewer */
+            /* PDF or Google Drive Embedded Viewer */
             <div className="w-full h-[76vh] flex flex-col bg-white border border-neutral-200 shadow-sm overflow-hidden">
               <iframe
-                src={`${resolvedUrl}#toolbar=1&navpanes=0`}
-                title={`${displayTitle} PDF`}
+                src={embedUrl}
+                title={`${displayTitle} Viewer`}
                 className="w-full flex-1 border-0"
               />
               <div className="p-3 bg-neutral-50 border-t border-neutral-200 flex items-center justify-between text-xs">
                 <span className="text-neutral-500 font-mono text-[11px]">
-                  PDF 뷰어가 브라우저에서 보이지 않을 경우 [다운로드] 버튼을 이용해 주세요.
+                  문서 뷰어가 브라우저에서 보이지 않을 경우 [새 창 열기] 또는 [다운로드] 버튼을 이용해 주세요.
                 </span>
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  className="font-bold text-black hover:underline inline-flex items-center gap-1 font-mono"
-                >
-                  <Download className="w-3 h-3" />
-                  직접 파일 다운로드
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleOpenExternal}
+                    className="font-bold text-neutral-700 hover:text-black hover:underline inline-flex items-center gap-1 font-mono cursor-pointer"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    새 창으로 열기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className="font-bold text-black hover:underline inline-flex items-center gap-1 font-mono cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    직접 파일 다운로드
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
             /* Generic / Web Document Viewer */
             <div className="text-center space-y-4 bg-white p-8 border border-neutral-200 max-w-md shadow-sm">
-              <CreditCard className="w-10 h-10 text-neutral-900 mx-auto" />
+              <div className="p-3 bg-neutral-50 border border-neutral-200 inline-block mx-auto">
+                {isRateCard ? (
+                  <CreditCard className="w-8 h-8 text-neutral-900 mx-auto" />
+                ) : (
+                  <Globe className="w-8 h-8 text-neutral-900 mx-auto" />
+                )}
+              </div>
               <div className="space-y-1">
                 <h4 className="font-bold text-base text-neutral-950">{displayTitle}</h4>
-                <p className="text-xs text-neutral-500 font-mono">{displayFileName}</p>
+                <p className="text-xs text-neutral-500 font-mono truncate max-w-sm">{displayFileName}</p>
               </div>
               <div className="pt-2 flex flex-col gap-2">
                 <button
                   type="button"
-                  onClick={handleDownload}
-                  className="w-full py-3 bg-black text-white font-bold text-xs font-mono uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-neutral-800 transition-colors"
+                  onClick={handleOpenExternal}
+                  className="w-full py-3 bg-black text-white font-bold text-xs font-mono uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-neutral-800 transition-colors cursor-pointer"
                 >
-                  <Download className="w-4 h-4" />
-                  파일 다운로드
+                  <ExternalLink className="w-4 h-4" />
+                  웹 링크 새 창으로 열람하기
                 </button>
                 <button
                   type="button"
-                  onClick={handleOpenExternal}
-                  className="w-full py-2.5 border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-800 font-bold text-xs font-mono uppercase tracking-wider flex items-center justify-center gap-2 transition-colors"
+                  onClick={handleDownload}
+                  className="w-full py-2.5 border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-800 font-bold text-xs font-mono uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  새 창에서 열람하기
+                  <Download className="w-4 h-4" />
+                  파일 다운로드 시도
                 </button>
               </div>
             </div>
