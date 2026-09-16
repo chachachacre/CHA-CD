@@ -69,6 +69,31 @@ async function startServer() {
     }
   });
 
+  // API Route: Firebase Storage proxy to allow same-origin fetch and direct Blob download
+  app.get("/_fb_storage/*", async (req, res) => {
+    try {
+      const pathAndQuery = req.originalUrl.replace(/^\/_fb_storage\//, "");
+      const targetUrl = `https://firebasestorage.googleapis.com/${pathAndQuery}`;
+
+      console.log(`[Storage Proxy] Proxying: ${targetUrl}`);
+      const remoteRes = await fetch(targetUrl);
+      if (!remoteRes.ok) {
+        return res.status(remoteRes.status).send(`Failed to fetch from storage: ${remoteRes.statusText}`);
+      }
+
+      const contentType = remoteRes.headers.get("content-type") || "application/pdf";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+
+      const arrayBuffer = await remoteRes.arrayBuffer();
+      return res.end(Buffer.from(arrayBuffer));
+    } catch (err) {
+      console.error("[Storage Proxy] Error:", err);
+      return res.status(500).send("Storage proxy error");
+    }
+  });
+
   // API Route: Force Download with correct attachment header and remote proxy capability
   app.get("/api/download", async (req, res) => {
     try {

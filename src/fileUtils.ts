@@ -112,27 +112,17 @@ export function getDownloadEndpoint(url: string | undefined, defaultFilename: st
 }
 
 /**
- * Detects whether the current runtime environment has an active Node/Express backend (/api/health)
- * or if it's hosted statically (e.g. Netlify, Vercel static, GitHub Pages).
+ * Triggers a direct file download in the browser by creating an anchor element with a Blob URL.
  */
-async function checkHasServerProxy(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  const host = window.location.hostname;
-
-  // Well-known static hosts that do not run our Express server.ts unless functions are configured
-  if (host.includes("netlify.app") || host.includes("github.io")) {
-    return false;
-  }
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1500);
-    const res = await fetch("/api/health", { method: "GET", cache: "no-store", signal: controller.signal });
-    clearTimeout(timeoutId);
-    return res.ok;
-  } catch {
-    return false;
-  }
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
 }
 
 /**
@@ -201,47 +191,61 @@ export async function downloadFile(url: string | undefined, defaultFilename: str
     try {
       const directRes = await fetch(cleanedUrl);
       if (directRes.ok) {
-        const blob = await directRes.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = safeFilename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-        return true;
+        const contentType = directRes.headers.get("content-type") || "";
+        if (!contentType.includes("text/html")) {
+          const blob = await directRes.blob();
+          triggerBlobDownload(blob, safeFilename);
+          return true;
+        }
       }
     } catch {
       // Direct CORS fetch failed or blocked; proceed to proxy or direct browser navigation
     }
 
-    // Attempt B: Check if server proxy (/api/download) is truly available
-    const hasProxy = await checkHasServerProxy();
-    if (hasProxy) {
-      const downloadEndpoint = getDownloadEndpoint(cleanedUrl, safeFilename);
+    // Attempt B: If it is Firebase Storage, fetch through same-origin /_fb_storage/ proxy
+    // This works on Netlify via _redirects AND on Express backend via server.ts
+    if (cleanedUrl.includes("firebasestorage.googleapis.com")) {
       try {
-        const win = window.open(downloadEndpoint, "_blank");
-        if (!win || win.closed || typeof win.closed === "undefined") {
-          const link = document.createElement("a");
-          link.href = downloadEndpoint;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+        const proxyUrl = cleanedUrl.replace(/^https?:\/\/firebasestorage\.googleapis\.com/, "/_fb_storage");
+        const res = await fetch(proxyUrl);
+        if (res.ok) {
+          const contentType = res.headers.get("content-type") || "";
+          // Strict check: Ensure Netlify/SPA did NOT return index.html
+          if (!contentType.includes("text/html")) {
+            const blob = await res.blob();
+            triggerBlobDownload(blob, safeFilename);
+            return true;
+          }
         }
-        return true;
       } catch (proxyErr) {
-        console.warn("Proxy launch failed:", proxyErr);
+        console.warn("Storage proxy fetch failed:", proxyErr);
       }
     }
 
-    // Attempt C: Static Hosting Fallback (Netlify / Vercel / GitHub Pages)
-    // On static deployments, directly open the verified Cloud document in a new tab.
-    // The browser's native PDF reader opens with complete controls (view, save, print)
-    // and NEVER hits Netlify's 404 Page Not Found error!
+    // Attempt C: Safe Direct Opening
+    // Opens the direct external cloud URL in a new tab (https://firebasestorage.googleapis.com/...)
+    // NEVER calls /api/download, so it NEVER serves index.html or reloads the site!
     window.open(cleanedUrl, "_blank", "noopener,noreferrer");
+    return true;
+  }
+
+  // 5. Local /uploads/ files
+  if (cleanedUrl.startsWith("/uploads/")) {
+    try {
+      const res = await fetch(cleanedUrl);
+      if (res.ok) {
+        const blob = await res.blob();
+        triggerBlobDownload(blob, safeFilename);
+        return true;
+      }
+    } catch {}
+
+    const a = document.createElement("a");
+    a.href = cleanedUrl;
+    a.download = safeFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     return true;
   }
 
