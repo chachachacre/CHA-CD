@@ -112,9 +112,33 @@ export function getDownloadEndpoint(url: string | undefined, defaultFilename: st
 }
 
 /**
- * High-reliability cross-browser download trigger.
- * Handles sandboxed iframe restrictions (e.g. AI Studio preview), Google Drive links,
- * IndexedDB blobs, and remote Firebase Storage attachments.
+ * Detects whether the current runtime environment has an active Node/Express backend (/api/health)
+ * or if it's hosted statically (e.g. Netlify, Vercel static, GitHub Pages).
+ */
+async function checkHasServerProxy(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+
+  // Well-known static hosts that do not run our Express server.ts unless functions are configured
+  if (host.includes("netlify.app") || host.includes("github.io")) {
+    return false;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch("/api/health", { method: "GET", cache: "no-store", signal: controller.signal });
+    clearTimeout(timeoutId);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * High-reliability cross-platform download trigger.
+ * Handles static hosts (Netlify, GitHub Pages), sandboxed iframes, Google Drive links,
+ * IndexedDB blobs, and remote Firebase Storage files.
  */
 export async function downloadFile(url: string | undefined, defaultFilename: string): Promise<boolean> {
   const cleanedUrl = cleanFileUrl(url);
@@ -147,7 +171,7 @@ export async function downloadFile(url: string | undefined, defaultFilename: str
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
         return true;
       } else {
         alert("로컬 저장소에 파일 데이터가 없습니다. 파일을 다시 업로드해 주세요.");
@@ -172,31 +196,53 @@ export async function downloadFile(url: string | undefined, defaultFilename: str
   }
 
   // 4. Remote HTTP/HTTPS URL (e.g. Firebase Cloud Storage) OR Local /uploads/
-  // In Chrome sandboxed iframe previews (like AI Studio preview), standard in-frame <a download>
-  // clicks get blocked by Chrome's sandbox policy with "사이트에서 사용할 수 없는 파일" (File unavailable from site).
-  // Opening the proxy endpoint in a top-level tab (_blank) escapes the iframe sandbox completely.
-  // The server sends Content-Disposition: attachment, so Chrome downloads the file to disk and closes the new tab.
   if (cleanedUrl.startsWith("http://") || cleanedUrl.startsWith("https://") || cleanedUrl.startsWith("/uploads/")) {
-    const downloadEndpoint = getDownloadEndpoint(cleanedUrl, safeFilename);
-
+    // Attempt A: Direct client-side fetch (instant zero-hop download if CORS permits)
     try {
-      const win = window.open(downloadEndpoint, "_blank");
-      if (!win || win.closed || typeof win.closed === "undefined") {
-        // Fallback if popup blocker intercepted window.open
-        const link = document.createElement("a");
-        link.href = downloadEndpoint;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+      const directRes = await fetch(cleanedUrl);
+      if (directRes.ok) {
+        const blob = await directRes.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = safeFilename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+        return true;
       }
-      return true;
-    } catch (apiErr) {
-      console.warn("Proxy download failed, trying direct anchor fallback:", apiErr);
-      window.open(cleanedUrl, "_blank", "noopener,noreferrer");
-      return true;
+    } catch {
+      // Direct CORS fetch failed or blocked; proceed to proxy or direct browser navigation
     }
+
+    // Attempt B: Check if server proxy (/api/download) is truly available
+    const hasProxy = await checkHasServerProxy();
+    if (hasProxy) {
+      const downloadEndpoint = getDownloadEndpoint(cleanedUrl, safeFilename);
+      try {
+        const win = window.open(downloadEndpoint, "_blank");
+        if (!win || win.closed || typeof win.closed === "undefined") {
+          const link = document.createElement("a");
+          link.href = downloadEndpoint;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+        return true;
+      } catch (proxyErr) {
+        console.warn("Proxy launch failed:", proxyErr);
+      }
+    }
+
+    // Attempt C: Static Hosting Fallback (Netlify / Vercel / GitHub Pages)
+    // On static deployments, directly open the verified Cloud document in a new tab.
+    // The browser's native PDF reader opens with complete controls (view, save, print)
+    // and NEVER hits Netlify's 404 Page Not Found error!
+    window.open(cleanedUrl, "_blank", "noopener,noreferrer");
+    return true;
   }
 
   // Fallback

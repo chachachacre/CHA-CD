@@ -106,14 +106,7 @@ export default function RateCardModal({
   const handleOpenExternal = () => {
     const target = cleanFileUrl(resolvedUrl || rawUrl);
     if (!target) return;
-
-    if (isGoogleDriveUrl(target)) {
-      window.open(target, "_blank", "noopener,noreferrer");
-    } else {
-      // Use our server inline proxy so the browser displays the PDF directly in a fresh tab
-      const viewEndpoint = getDownloadEndpoint(target, displayFileName, true);
-      window.open(viewEndpoint, "_blank", "noopener,noreferrer");
-    }
+    window.open(target, "_blank", "noopener,noreferrer");
   };
 
   return (
