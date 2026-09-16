@@ -251,7 +251,7 @@ export default function App() {
   }, [portfolioSettings.rateCardUrl]);
 
   // Determine effective portfolio PDF link (supporting Cloud URLs, server /uploads/, IndexedDB local cache)
-  const defaultPdfUrl = "/uploads/CHA_CD_Rate_Card_2026.pdf"; // safe fallback
+  const defaultPdfUrl = "/uploads/CHA_CD_Portfolio_2026.pdf";
   const defaultPdfName = "CHA_CD_Portfolio_2026.pdf";
 
   const cleanedSettingPdfUrl = cleanFileUrl(portfolioSettings.pdfUrl);
@@ -678,19 +678,26 @@ export default function App() {
 
             <div className="space-y-1">
               <p className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold font-mono">Portfolio</p>
-              {localPdfUrl || portfolioSettings.pdfUrl ? (
-                <a
-                  href={getCacheBustedUrl(localPdfUrl || portfolioSettings.pdfUrl)}
-                  download={portfolioSettings.pdfFileName || "CHA_CD_Portfolio.pdf"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-bold border-b border-black uppercase tracking-wider hover:opacity-75 transition-opacity"
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsPortfolioModalOpen(true)}
+                  className="text-xs font-bold border-b border-black uppercase tracking-wider hover:opacity-75 transition-opacity cursor-pointer"
                 >
-                  TVCF · Digital Content · Print Portfolio
-                </a>
-              ) : (
-                <span className="text-xs text-neutral-400 font-bold uppercase tracking-wider">미등록</span>
-              )}
+                  포트폴리오 열람
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePortfolioDownload}
+                  disabled={isDownloadingPortfolio}
+                  className="text-xs font-bold text-neutral-500 hover:text-black transition-colors cursor-pointer inline-flex items-center gap-1 font-mono"
+                  title="포트폴리오 PDF 다운로드"
+                  id="contact-portfolio-download-btn"
+                >
+                  <Download className="w-3 h-3" />
+                  {isDownloadingPortfolio ? "다운로드 중..." : "다운로드"}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-1">

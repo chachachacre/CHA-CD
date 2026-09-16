@@ -72,7 +72,12 @@ async function startServer() {
   // API Route: Firebase Storage proxy to allow same-origin fetch and direct Blob download
   app.get("/_fb_storage/*", async (req, res) => {
     try {
-      const pathAndQuery = req.originalUrl.replace(/^\/_fb_storage\//, "");
+      let pathAndQuery = req.originalUrl.replace(/^\/_fb_storage\//, "");
+      // Auto-heal typo if present (%E1%85%A5 -> %E1%85%A9)
+      if (pathAndQuery.includes("%E1%85%A5_2026ver") || pathAndQuery.includes("포트폴리어")) {
+        pathAndQuery = pathAndQuery.replace(/%E1%85%A5_2026ver/g, "%E1%85%A9_2026ver").replace(/포트폴리어/g, "포트폴리오");
+      }
+
       const targetUrl = `https://firebasestorage.googleapis.com/${pathAndQuery}`;
 
       console.log(`[Storage Proxy] Proxying: ${targetUrl}`);

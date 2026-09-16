@@ -106,7 +106,12 @@ export default function RateCardModal({
   const handleOpenExternal = () => {
     const target = cleanFileUrl(resolvedUrl || rawUrl);
     if (!target) return;
-    window.open(target, "_blank", "noopener,noreferrer");
+    if (target.startsWith("http://") || target.startsWith("https://")) {
+      window.open(target, "_blank", "noopener,noreferrer");
+    } else {
+      // Local or blob file: trigger safe download directly
+      downloadFile(target, displayFileName);
+    }
   };
 
   return (

@@ -2150,7 +2150,7 @@ export default function AdminPanel({
       <RateCardModal
         isOpen={isPortfolioPreviewOpen}
         onClose={() => setIsPortfolioPreviewOpen(false)}
-        rawUrl={settingsForm.pdfUrl || "/uploads/CHA_CD_Rate_Card_2026.pdf"}
+        rawUrl={settingsForm.pdfUrl || "/uploads/CHA_CD_Portfolio_2026.pdf"}
         fileName={settingsForm.pdfFileName || "CHA_CD_Portfolio_2026.pdf"}
         title="CHA CD 포트폴리오 (Portfolio)"
       />

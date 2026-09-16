@@ -18,6 +18,11 @@ export function cleanFileUrl(url: string | undefined | null): string {
     cleaned = cleaned.replace(/^chrome-extension:\/\/[^/]+\//i, "");
   }
 
+  // Handle typo in stored filename (%E1%85%A5 -> %E1%85%A9 for "포트폴리오")
+  if (cleaned.includes("%E1%85%A5_2026ver") || cleaned.includes("포트폴리어")) {
+    cleaned = cleaned.replace(/%E1%85%A5_2026ver/g, "%E1%85%A9_2026ver").replace(/포트폴리어/g, "포트폴리오");
+  }
+
   // Handle edge case where https:// or http:// was duplicated
   const httpIdx = cleaned.indexOf("https://");
   if (httpIdx > 0 && cleaned.startsWith("chrome-extension:")) {
@@ -222,21 +227,51 @@ export async function downloadFile(url: string | undefined, defaultFilename: str
       }
     }
 
-    // Attempt C: Safe Direct Opening
-    // Opens the direct external cloud URL in a new tab (https://firebasestorage.googleapis.com/...)
-    // NEVER calls /api/download, so it NEVER serves index.html or reloads the site!
-    window.open(cleanedUrl, "_blank", "noopener,noreferrer");
-    return true;
+    // Attempt C: Bulletproof Local Static Bundle Fallback (Netlify / Static CDN / Offline)
+    // Both files exist in /uploads/ and / in the build output, guaranteeing 100% successful direct downloads
+    const isPortfolio = safeFilename.includes("포트폴리오") || safeFilename.toLowerCase().includes("portfolio");
+    const isRateCard = safeFilename.includes("단가") || safeFilename.toLowerCase().includes("rate");
+    const localFallbacks = isPortfolio
+      ? ["/uploads/CHA_CD_Portfolio_2026.pdf", "/CHA_CD_Portfolio_2026.pdf"]
+      : isRateCard
+      ? ["/uploads/CHA_CD_Rate_Card_2026.pdf", "/CHA_CD_Rate_Card_2026.pdf"]
+      : [];
+
+    for (const fallbackPath of localFallbacks) {
+      try {
+        const fbRes = await fetch(fallbackPath);
+        if (fbRes.ok) {
+          const contentType = fbRes.headers.get("content-type") || "";
+          if (!contentType.includes("text/html")) {
+            const blob = await fbRes.blob();
+            triggerBlobDownload(blob, safeFilename);
+            return true;
+          }
+        }
+      } catch {}
+    }
+
+    // Attempt D: Safe direct opening of verified Cloud Storage URL
+    // Never open relative paths that could route to index.html
+    if (cleanedUrl.startsWith("https://firebasestorage.googleapis.com/")) {
+      window.open(cleanedUrl, "_blank", "noopener,noreferrer");
+      return true;
+    }
+
+    return false;
   }
 
   // 5. Local /uploads/ files
-  if (cleanedUrl.startsWith("/uploads/")) {
+  if (cleanedUrl.startsWith("/uploads/") || cleanedUrl.startsWith("/")) {
     try {
       const res = await fetch(cleanedUrl);
       if (res.ok) {
-        const blob = await res.blob();
-        triggerBlobDownload(blob, safeFilename);
-        return true;
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("text/html")) {
+          const blob = await res.blob();
+          triggerBlobDownload(blob, safeFilename);
+          return true;
+        }
       }
     } catch {}
 
@@ -249,8 +284,11 @@ export async function downloadFile(url: string | undefined, defaultFilename: str
     return true;
   }
 
-  // Fallback
-  window.open(cleanedUrl, "_blank", "noopener,noreferrer");
-  return true;
+  // Fallback: only open absolute https links to prevent SPA loops
+  if (cleanedUrl.startsWith("https://") || cleanedUrl.startsWith("http://")) {
+    window.open(cleanedUrl, "_blank", "noopener,noreferrer");
+    return true;
+  }
+  return false;
 }
 
