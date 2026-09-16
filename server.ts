@@ -74,9 +74,19 @@ async function startServer() {
     try {
       let fileParam = ((req.query.file || req.query.url) as string) || "";
       let downloadName = (req.query.name as string) || "CHA_CD_Rate_Card.pdf";
+      const isInline = req.query.inline === "true";
 
       if (!fileParam) {
         return res.status(400).json({ error: "Missing file parameter" });
+      }
+
+      // If fileParam has been doubly URI encoded (e.g. %252F instead of %2F), decode it back
+      if (fileParam.includes("%25")) {
+        try {
+          fileParam = decodeURIComponent(fileParam);
+        } catch {
+          // ignore
+        }
       }
 
       // Strip any browser extension prefixes (e.g. Adobe Acrobat chrome-extension://)
@@ -91,12 +101,18 @@ async function startServer() {
 
       const encodedFilename = encodeURIComponent(downloadName).replace(/['()]/g, escape).replace(/\*/g, "%2A");
       const asciiFallback = downloadName.replace(/[^\x20-\x7E]/g, "_");
+      const dispositionType = isInline ? "inline" : "attachment";
+
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Access-Control-Expose-Headers", "Content-Disposition, Content-Length");
 
       // 1. Remote URL (e.g. Firebase Storage, Cloudinary, AWS S3)
       if (fileParam.startsWith("http://") || fileParam.startsWith("https://")) {
-        console.log(`[Download API] Proxying remote file download: ${fileParam} as "${downloadName}"`);
+        console.log(`[Download API] Proxying remote file download: ${fileParam} as "${downloadName}" (inline: ${isInline})`);
         const remoteRes = await fetch(fileParam);
         if (!remoteRes.ok) {
+          console.error(`[Download API] Failed to fetch remote file: ${remoteRes.status} ${remoteRes.statusText}`);
           return res.status(remoteRes.status).send(`Failed to fetch remote file: ${remoteRes.statusText}`);
         }
 
@@ -104,7 +120,7 @@ async function startServer() {
         res.setHeader("Content-Type", contentType);
         res.setHeader(
           "Content-Disposition",
-          `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`
+          `${dispositionType}; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`
         );
 
         const arrayBuffer = await remoteRes.arrayBuffer();
@@ -124,7 +140,7 @@ async function startServer() {
         res.setHeader("Content-Length", stat.size);
         res.setHeader(
           "Content-Disposition",
-          `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`
+          `${dispositionType}; filename="${asciiFallback}"; filename*=UTF-8''${encodedFilename}`
         );
         const fileStream = fs.createReadStream(filePath);
         return fileStream.pipe(res);

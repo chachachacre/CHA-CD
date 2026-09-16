@@ -98,6 +98,24 @@ export async function resolveViewUrl(url: string | undefined): Promise<string> {
  * Leverages server-side proxying (/api/download) for remote Cloud and local files to ensure
  * genuine file attachments without CORS or extension corruption.
  */
+/**
+ * Returns a server-proxied download URL that enforces RFC 5987 Content-Disposition
+ */
+export function getDownloadEndpoint(url: string | undefined, defaultFilename: string, inline = false): string {
+  const cleanedUrl = cleanFileUrl(url);
+  if (!cleanedUrl) return "";
+  let safeFilename = defaultFilename || "document.pdf";
+  if (isPdfFile(cleanedUrl, safeFilename) && !safeFilename.toLowerCase().endsWith(".pdf")) {
+    safeFilename = `${safeFilename}.pdf`;
+  }
+  return `/api/download?url=${encodeURIComponent(cleanedUrl)}&name=${encodeURIComponent(safeFilename)}${inline ? "&inline=true" : ""}`;
+}
+
+/**
+ * High-reliability cross-browser download trigger.
+ * Handles sandboxed iframe restrictions (e.g. AI Studio preview), Google Drive links,
+ * IndexedDB blobs, and remote Firebase Storage attachments.
+ */
 export async function downloadFile(url: string | undefined, defaultFilename: string): Promise<boolean> {
   const cleanedUrl = cleanFileUrl(url);
   if (!cleanedUrl) {
@@ -110,7 +128,13 @@ export async function downloadFile(url: string | undefined, defaultFilename: str
     safeFilename = `${safeFilename}.pdf`;
   }
 
-  // 1. IndexedDB local protocol
+  // 1. Google Drive URLs
+  if (isGoogleDriveUrl(cleanedUrl)) {
+    window.open(cleanedUrl, "_blank", "noopener,noreferrer");
+    return true;
+  }
+
+  // 2. IndexedDB local protocol
   if (cleanedUrl.startsWith("indexeddb:")) {
     const key = cleanedUrl.replace("indexeddb:", "");
     try {
@@ -136,7 +160,7 @@ export async function downloadFile(url: string | undefined, defaultFilename: str
     }
   }
 
-  // 2. Blob or Data URL
+  // 3. Blob or Data URL
   if (cleanedUrl.startsWith("blob:") || cleanedUrl.startsWith("data:")) {
     const a = document.createElement("a");
     a.href = cleanedUrl;
@@ -147,39 +171,36 @@ export async function downloadFile(url: string | undefined, defaultFilename: str
     return true;
   }
 
-  // 3. Remote HTTP/HTTPS URL (e.g. Firebase Cloud Storage) OR Local /uploads/
-  // Use our high-reliability server-side /api/download endpoint to ensure the OS receives
-  // the exact intact file with RFC 5987 Korean headers and bypasses any Adobe browser extension interceptors!
+  // 4. Remote HTTP/HTTPS URL (e.g. Firebase Cloud Storage) OR Local /uploads/
+  // In Chrome sandboxed iframe previews (like AI Studio preview), standard in-frame <a download>
+  // clicks get blocked by Chrome's sandbox policy with "사이트에서 사용할 수 없는 파일" (File unavailable from site).
+  // Opening the proxy endpoint in a top-level tab (_blank) escapes the iframe sandbox completely.
+  // The server sends Content-Disposition: attachment, so Chrome downloads the file to disk and closes the new tab.
   if (cleanedUrl.startsWith("http://") || cleanedUrl.startsWith("https://") || cleanedUrl.startsWith("/uploads/")) {
+    const downloadEndpoint = getDownloadEndpoint(cleanedUrl, safeFilename);
+
     try {
-      const downloadEndpoint = `/api/download?url=${encodeURIComponent(cleanedUrl)}&file=${encodeURIComponent(cleanedUrl)}&name=${encodeURIComponent(safeFilename)}`;
-      
-      const link = document.createElement("a");
-      link.href = downloadEndpoint;
-      link.setAttribute("download", safeFilename);
-      link.style.display = "none";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const win = window.open(downloadEndpoint, "_blank");
+      if (!win || win.closed || typeof win.closed === "undefined") {
+        // Fallback if popup blocker intercepted window.open
+        const link = document.createElement("a");
+        link.href = downloadEndpoint;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
       return true;
     } catch (apiErr) {
       console.warn("Proxy download failed, trying direct anchor fallback:", apiErr);
+      window.open(cleanedUrl, "_blank", "noopener,noreferrer");
+      return true;
     }
-
-    // Direct fallback
-    const fallbackLink = document.createElement("a");
-    fallbackLink.href = cleanedUrl;
-    fallbackLink.download = safeFilename;
-    fallbackLink.target = "_blank";
-    fallbackLink.rel = "noopener noreferrer";
-    document.body.appendChild(fallbackLink);
-    fallbackLink.click();
-    document.body.removeChild(fallbackLink);
-    return true;
   }
 
   // Fallback
-  window.open(cleanedUrl, "_blank");
+  window.open(cleanedUrl, "_blank", "noopener,noreferrer");
   return true;
 }
 
