@@ -24,7 +24,8 @@ import {
   Loader2,
   CreditCard,
   Download,
-  ExternalLink
+  ExternalLink,
+  ShieldCheck
 } from "lucide-react";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "../types";
 import { savePDF, getPDF, deletePDF, saveMediaFile, getMediaFile, deleteMediaFile, useMediaUrl } from "../pdfStorage";
@@ -108,12 +109,55 @@ export default function AdminPanel({
     }
   };
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      // Trigger auto sync seamlessly upon login!
-      handleAutoSyncStorage(true).catch(console.error);
-    }
-  }, [isAuthenticated]);
+  // Export current portfolio state to JSON backup file
+  const handleExportBackup = () => {
+    const backupData = {
+      version: "1.0",
+      exportDate: new Date().toISOString(),
+      itemCount: portfolioItems.length,
+      items: portfolioItems,
+      contactInfo,
+      portfolioSettings,
+    };
+    const jsonStr = JSON.stringify(backupData, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cha_cd_portfolio_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    triggerSaveNotification("포트폴리오 전체 데이터가 JSON 백업 파일로 저장되었습니다.");
+  };
+
+  // Import portfolio state from JSON backup file
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+          if (confirm(`백업 파일에 저장된 ${parsed.items.length}개의 프로젝트 데이터를 Firestore에 복원하시겠습니까?`)) {
+            await onUpdateItems(parsed.items);
+            if (parsed.contactInfo) await onUpdateContact(parsed.contactInfo);
+            if (parsed.portfolioSettings) await onUpdateSettings(parsed.portfolioSettings);
+            alert(`총 ${parsed.items.length}개의 프로젝트가 성공적으로 복원되었습니다.`);
+          }
+        } else {
+          alert("올바른 포트폴리오 백업 JSON 형식이 아닙니다.");
+        }
+      } catch (err) {
+        alert("백업 파일 파싱 중 오류가 발생했습니다: " + err);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
 
   const hasLocalAssets = useMemo(() => {
     const hasLocalPdf = portfolioSettings.pdfUrl === "local_indexeddb" || (portfolioSettings.pdfUrl && portfolioSettings.pdfUrl.startsWith("indexeddb:"));
@@ -2105,21 +2149,39 @@ export default function AdminPanel({
                 </form>
               </section>
 
-              {/* Reset state helper */}
-              <div className="border-t border-neutral-100 pt-4 flex justify-between items-center text-[11px] text-neutral-400">
-                <span>데이터 초기화가 필요한가요?</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm("모든 설정과 추가한 작업물을 기본 데이터 상태로 리셋하시겠습니까?")) {
-                      localStorage.clear();
-                      window.location.reload();
-                    }
-                  }}
-                  className="text-neutral-500 hover:text-red-600 font-medium transition-colors"
-                >
-                  기본값 복원 (초기화)
-                </button>
+              {/* Data Backup & Restore helper */}
+              <div className="border-t border-neutral-200 pt-6 mt-6">
+                <div className="bg-neutral-50 border border-neutral-200 rounded p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-wider font-mono">
+                      데이터 안전 백업 및 원클릭 복원
+                    </h4>
+                  </div>
+                  <p className="text-[11px] text-neutral-500 leading-relaxed mb-4">
+                    현재 등록된 {portfolioItems.length}개 프로젝트의 제목, 순서, 영상 및 썸네일 URL을 JSON 파일로 내보내어 안전하게 보관하세요. 언제든 파일 하나로 원상 복구할 수 있습니다.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleExportBackup}
+                      className="px-3 py-2 bg-neutral-900 hover:bg-black text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      현재 포트폴리오 백업 (JSON 다운로드)
+                    </button>
+                    <label className="px-3 py-2 bg-white border border-neutral-300 hover:border-neutral-400 text-neutral-700 hover:text-black text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer">
+                      <Upload className="w-3.5 h-3.5" />
+                      백업 파일 불러오기 (복원)
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleImportBackup}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
           )}

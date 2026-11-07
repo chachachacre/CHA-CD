@@ -635,20 +635,22 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex items-start gap-4 p-5 border border-neutral-100 hover:border-neutral-200 hover:bg-neutral-50/40 transition-all">
-                  <div className="p-2.5 bg-neutral-100 text-neutral-600 shrink-0">
-                    <Phone className="w-4 h-4" />
+                {contactInfo.phone && (
+                  <div className="flex items-start gap-4 p-5 border border-neutral-100 hover:border-neutral-200 hover:bg-neutral-50/40 transition-all">
+                    <div className="p-2.5 bg-neutral-100 text-neutral-600 shrink-0">
+                      <Phone className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-neutral-400 font-bold tracking-wider font-mono block uppercase">전화번호</span>
+                      <a
+                        href={`tel:${contactInfo.phone}`}
+                        className="text-sm font-semibold text-neutral-800 hover:text-neutral-950 hover:underline transition-colors"
+                      >
+                        {contactInfo.phone}
+                      </a>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-neutral-400 font-bold tracking-wider font-mono block uppercase">전화번호</span>
-                    <a
-                      href={`tel:${contactInfo.phone}`}
-                      className="text-sm font-semibold text-neutral-800 hover:text-neutral-950 hover:underline transition-colors"
-                    >
-                      {contactInfo.phone}
-                    </a>
-                  </div>
-                </div>
+                )}
 
                 {contactInfo.officeAddress && (
                   <div className="flex items-start gap-4 p-5 border border-neutral-100 hover:border-neutral-200 hover:bg-neutral-50/40 transition-all">
@@ -682,12 +684,14 @@ export default function App() {
               </a>
             </div>
 
-            <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold font-mono">Phone</p>
-              <a href={`tel:${contactInfo.phone}`} className="text-xs font-semibold text-neutral-800 hover:text-black transition-colors">
-                {contactInfo.phone}
-              </a>
-            </div>
+            {contactInfo.phone && (
+              <div className="space-y-1">
+                <p className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold font-mono">Phone</p>
+                <a href={`tel:${contactInfo.phone}`} className="text-xs font-semibold text-neutral-800 hover:text-black transition-colors">
+                  {contactInfo.phone}
+                </a>
+              </div>
+            )}
 
             <div className="space-y-1">
               <p className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold font-mono">Portfolio</p>

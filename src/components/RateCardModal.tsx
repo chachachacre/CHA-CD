@@ -43,23 +43,71 @@ export default function RateCardModal({
 
   useEffect(() => {
     let active = true;
+    let objectUrlToRevoke: string | null = null;
 
     const cleaned = cleanFileUrl(rawUrl);
     if (isOpen && cleaned) {
       setIsLoading(true);
-      resolveViewUrl(cleaned)
-        .then((url) => {
-          if (active) {
-            setResolvedUrl(url);
-            setIsLoading(false);
-          }
-        })
-        .catch(() => {
-          if (active) {
-            setResolvedUrl(cleaned);
-            setIsLoading(false);
-          }
-        });
+
+      if (cleaned.startsWith("indexeddb:")) {
+        resolveViewUrl(cleaned)
+          .then((url) => {
+            if (active) {
+              setResolvedUrl(url);
+              setIsLoading(false);
+            }
+          })
+          .catch(() => {
+            if (active) {
+              setResolvedUrl(cleaned);
+              setIsLoading(false);
+            }
+          });
+      } else if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) {
+        // Fetch the remote PDF to convert to same-origin Blob URL so the browser renders it safely in iframe/object without cross-origin blocks
+        fetch(cleaned)
+          .then(async (res) => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const blob = await res.blob();
+            if (active) {
+              const url = URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+              objectUrlToRevoke = url;
+              setResolvedUrl(url);
+              setIsLoading(false);
+            }
+          })
+          .catch((err) => {
+            console.warn("Direct blob fetch failed, falling back to proxy or direct URL:", err);
+            if (cleaned.includes("firebasestorage.googleapis.com")) {
+              const proxy = cleaned.replace(/^https?:\/\/firebasestorage\.googleapis\.com/, "/_fb_storage");
+              fetch(proxy)
+                .then(async (res) => {
+                  if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+                  const blob = await res.blob();
+                  if (active) {
+                    const url = URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+                    objectUrlToRevoke = url;
+                    setResolvedUrl(url);
+                    setIsLoading(false);
+                  }
+                })
+                .catch(() => {
+                  if (active) {
+                    setResolvedUrl(cleaned);
+                    setIsLoading(false);
+                  }
+                });
+            } else {
+              if (active) {
+                setResolvedUrl(cleaned);
+                setIsLoading(false);
+              }
+            }
+          });
+      } else {
+        setResolvedUrl(cleaned);
+        setIsLoading(false);
+      }
     } else {
       setResolvedUrl("");
       setIsLoading(false);
@@ -67,6 +115,9 @@ export default function RateCardModal({
 
     return () => {
       active = false;
+      if (objectUrlToRevoke) {
+        URL.revokeObjectURL(objectUrlToRevoke);
+      }
     };
   }, [isOpen, rawUrl]);
 
@@ -88,7 +139,7 @@ export default function RateCardModal({
   const isPdf = isPdfFile(resolvedUrl, fileName) || isGDocs;
   const embedUrl = isGDocs
     ? getGoogleDrivePreviewUrl(resolvedUrl || rawUrl)
-    : `${resolvedUrl}#toolbar=1&navpanes=0`;
+    : resolvedUrl ? `${resolvedUrl}#toolbar=1&navpanes=0` : "";
 
   const displayTitle = title || "제작 단가표 (Rate Card)";
   const isRateCard = displayTitle.includes("단가") || displayTitle.toLowerCase().includes("rate");
@@ -97,19 +148,18 @@ export default function RateCardModal({
   const handleDownload = async () => {
     setIsDownloading(true);
     try {
-      await downloadFile(resolvedUrl || rawUrl, displayFileName);
+      await downloadFile(rawUrl || resolvedUrl, displayFileName);
     } finally {
       setIsDownloading(false);
     }
   };
 
   const handleOpenExternal = () => {
-    const target = cleanFileUrl(resolvedUrl || rawUrl);
+    const target = cleanFileUrl(rawUrl || resolvedUrl);
     if (!target) return;
     if (target.startsWith("http://") || target.startsWith("https://")) {
       window.open(target, "_blank", "noopener,noreferrer");
     } else {
-      // Local or blob file: trigger safe download directly
       downloadFile(target, displayFileName);
     }
   };
@@ -218,11 +268,17 @@ export default function RateCardModal({
           ) : isPdf ? (
             /* PDF or Google Drive Embedded Viewer */
             <div className="w-full h-[76vh] flex flex-col bg-white border border-neutral-200 shadow-sm overflow-hidden">
-              <iframe
-                src={embedUrl}
-                title={`${displayTitle} Viewer`}
+              <object
+                data={embedUrl}
+                type="application/pdf"
                 className="w-full flex-1 border-0"
-              />
+              >
+                <iframe
+                  src={embedUrl}
+                  title={`${displayTitle} Viewer`}
+                  className="w-full h-full border-0"
+                />
+              </object>
               <div className="p-3 bg-neutral-50 border-t border-neutral-200 flex items-center justify-between text-xs">
                 <span className="text-neutral-500 font-mono text-[11px]">
                   문서 뷰어가 브라우저에서 보이지 않을 경우 [새 창 열기] 또는 [다운로드] 버튼을 이용해 주세요.
