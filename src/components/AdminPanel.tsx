@@ -27,7 +27,6 @@ import {
   ExternalLink
 } from "lucide-react";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "../types";
-import { initialPortfolioItems } from "../data";
 import { savePDF, getPDF, deletePDF, saveMediaFile, getMediaFile, deleteMediaFile, useMediaUrl } from "../pdfStorage";
 import { ResolvedImage } from "./ResolvedImage";
 import { uploadToStorage, deleteFromStorage, syncStorageUrlsToFirestore, syncPdfUrlToFirestore, fileToDataUrl } from "../firebase";
@@ -275,22 +274,13 @@ export default function AdminPanel({
                   item.thumbnailUrl = downloadUrl;
                   singleChanged = true;
                 } else {
-                  console.warn(`Thumbnail upload timed out or failed for ${item.title}, resetting URL`);
-                  const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
-                  item.thumbnailUrl = defaultItem ? defaultItem.thumbnailUrl : "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800";
-                  singleChanged = true;
+                  console.warn(`Thumbnail upload timed out or failed for ${item.title}`);
                 }
               } catch (err) {
                 console.error(`Thumbnail upload failed for ${item.title}:`, err);
-                const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
-                item.thumbnailUrl = defaultItem ? defaultItem.thumbnailUrl : "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800";
-                singleChanged = true;
               }
             } else {
-              console.warn(`Local thumbnail file missing for ${item.title}, resetting URL`);
-              const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
-              item.thumbnailUrl = defaultItem ? defaultItem.thumbnailUrl : "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800";
-              singleChanged = true;
+              console.warn(`Local thumbnail file missing for ${item.title}`);
             }
           }
 
@@ -322,22 +312,13 @@ export default function AdminPanel({
                   item.videoUrl = downloadUrl;
                   singleChanged = true;
                 } else {
-                  console.warn(`Video upload timed out or failed for ${item.title}, resetting URL`);
-                  const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
-                  item.videoUrl = defaultItem ? defaultItem.videoUrl : "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4";
-                  singleChanged = true;
+                  console.warn(`Video upload timed out or failed for ${item.title}`);
                 }
               } catch (err) {
                 console.error(`Video upload failed for ${item.title}:`, err);
-                const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
-                item.videoUrl = defaultItem ? defaultItem.videoUrl : "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4";
-                singleChanged = true;
               }
             } else {
-              console.warn(`Local video file missing for ${item.title}, resetting URL`);
-              const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
-              item.videoUrl = defaultItem ? defaultItem.videoUrl : "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4";
-              singleChanged = true;
+              console.warn(`Local video file missing for ${item.title}`);
             }
           }
 
@@ -467,7 +448,7 @@ export default function AdminPanel({
 
   // Reset/Clear local IndexedDB pointers that have missing files
   const handleResetUnsyncedAssets = async () => {
-    if (!confirm("미연동 상태의 로컬 참조를 기본 클라우드 URL로 재설정하시겠습니까? (깨진 로컬 파일이 정리됩니다)")) return;
+    if (!confirm("미연동 상태의 로컬 참조를 정리하시겠습니까?")) return;
 
     const updated = portfolioItems.map(item => {
       const isLocalThumb = item.thumbnailUrl && item.thumbnailUrl.startsWith("indexeddb:");
@@ -475,16 +456,15 @@ export default function AdminPanel({
 
       if (!isLocalThumb && !isLocalVideo) return item;
 
-      const defaultItem = initialPortfolioItems.find(d => d.id === item.id);
       return {
         ...item,
-        thumbnailUrl: isLocalThumb ? (defaultItem ? defaultItem.thumbnailUrl : "https://images.unsplash.com/photo-1617788138017-80ad40651399?auto=format&fit=crop&q=80&w=800") : item.thumbnailUrl,
-        videoUrl: isLocalVideo ? (defaultItem ? defaultItem.videoUrl : "https://assets.mixkit.co/videos/preview/mixkit-car-headlight-in-a-dark-night-42171-large.mp4") : item.videoUrl,
+        thumbnailUrl: isLocalThumb ? "" : item.thumbnailUrl,
+        videoUrl: isLocalVideo ? "" : item.videoUrl,
       };
     });
 
     await onUpdateItems(updated);
-    triggerSaveNotification("미연동 참조가 초기화되었습니다.");
+    triggerSaveNotification("미연동 참조가 정리되었습니다.");
   };
 
   // Managing items edit state

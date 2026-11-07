@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { PortfolioItem, ContactInfo, PortfolioSettings } from "./types";
 import {
-  initialPortfolioItems,
   initialContactInfo,
   initialPortfolioSettings
 } from "./data";
@@ -34,10 +33,17 @@ import { db, syncAllPortfolioItemsToFirestore, saveContactInfoToFirestore, saveP
 import { collection, doc, onSnapshot, setDoc, query, orderBy, writeBatch } from "firebase/firestore";
 
 export default function App() {
-  // State management with localStorage fallback (for instant initial paint)
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>(() => {
     const saved = localStorage.getItem("cha_portfolio_items");
-    return saved ? JSON.parse(saved) : initialPortfolioItems;
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed)
+        ? parsed.filter((it: any) => !["1", "2", "3", "4", "5", "6", "7", "8"].includes(it.id))
+        : [];
+    } catch {
+      return [];
+    }
   });
 
   const [contactInfo, setContactInfo] = useState<ContactInfo>(() => {
@@ -60,36 +66,30 @@ export default function App() {
     const unsubscribeItems = onSnapshot(
       qItems,
       async (snapshot) => {
-        console.log("Firestore portfolio_items snapshot received. Empty:", snapshot.empty);
-        if (snapshot.empty) {
-          // Seed Firestore using existing localStorage or default data
-          const localSaved = localStorage.getItem("cha_portfolio_items");
-          const itemsToSeed = localSaved ? JSON.parse(localSaved) : initialPortfolioItems;
-          const batch = writeBatch(db);
-          itemsToSeed.forEach((item: PortfolioItem) => {
-            batch.set(doc(db, "portfolio_items", item.id), item);
-          });
-          await batch.commit();
-          console.log("Firestore successfully seeded with default items.");
-        } else {
-          const items: PortfolioItem[] = [];
-          snapshot.forEach((docSnap) => {
-            items.push(docSnap.data() as PortfolioItem);
-          });
-          setPortfolioItems(items);
-          localStorage.setItem("cha_portfolio_items", JSON.stringify(items));
-
-          // Auto repair/sync if items contain local indexeddb links that won't work on mobile
-          const hasLocalLinks = items.some(
-            (item) =>
-              (item.thumbnailUrl && item.thumbnailUrl.startsWith("indexeddb:")) ||
-              (item.videoUrl && item.videoUrl.startsWith("indexeddb:"))
-          );
-          if (hasLocalLinks) {
-            syncStorageUrlsToFirestore(items, syncAllPortfolioItemsToFirestore).catch((e) =>
-              console.warn("Background storage sync attempt error:", e)
-            );
+        const items: PortfolioItem[] = [];
+        snapshot.forEach((docSnap) => {
+          const item = docSnap.data() as PortfolioItem;
+          // Filter out legacy dummy sample items
+          if (!["1", "2", "3", "4", "5", "6", "7", "8"].includes(item.id) && !item.client?.includes("The Art of AI Movement")) {
+            items.push(item);
           }
+        });
+        
+        // Sort cleanly by order
+        items.sort((a, b) => (a.order || 0) - (b.order || 0));
+        setPortfolioItems(items);
+        localStorage.setItem("cha_portfolio_items", JSON.stringify(items));
+
+        // Auto repair/sync if items contain local indexeddb links that won't work on mobile
+        const hasLocalLinks = items.some(
+          (item) =>
+            (item.thumbnailUrl && item.thumbnailUrl.startsWith("indexeddb:")) ||
+            (item.videoUrl && item.videoUrl.startsWith("indexeddb:"))
+        );
+        if (hasLocalLinks) {
+          syncStorageUrlsToFirestore(items, syncAllPortfolioItemsToFirestore).catch((e) =>
+            console.warn("Background storage sync attempt error:", e)
+          );
         }
       },
       (error) => {
@@ -321,17 +321,30 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-white text-neutral-900 selection:bg-neutral-900 selection:text-white flex flex-col justify-between">
-      {/* 1. Header (Sticky Top with only PORTFOLIO and CONTACT links) */}
+      {/* 1. Header (Sticky Top with Brand + Navigation links) */}
       <header className="sticky top-0 left-0 right-0 bg-white/80 backdrop-blur-md z-40 border-b border-neutral-100 transition-all duration-300">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-4 flex items-center justify-end">
+        <div className="max-w-6xl mx-auto px-4 md:px-8 py-4 flex items-center justify-between">
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+            className="text-sm font-black font-display tracking-tight text-neutral-950 hover:opacity-75 transition-opacity cursor-pointer"
+          >
+            CHA CD
+          </button>
           {/* Navigation Links */}
-          <nav className="flex items-center gap-6 md:gap-8" id="primary-navigation">
+          <nav className="flex items-center gap-5 md:gap-7" id="primary-navigation">
+            <button
+              onClick={() => scrollToSection("works-section")}
+              className="text-xs font-bold tracking-widest text-neutral-900 hover:underline decoration-2 underline-offset-8 transition-all uppercase py-1 cursor-pointer"
+              id="nav-works"
+            >
+              Works
+            </button>
             <button
               onClick={() => scrollToSection("portfolio-section")}
               className="text-xs font-bold tracking-widest text-neutral-900 hover:underline decoration-2 underline-offset-8 transition-all uppercase py-1 cursor-pointer"
               id="nav-portfolio"
             >
-              Portfolio
+              Portfolio PDF
             </button>
             <button
               onClick={() => scrollToSection("ratecard-section")}
@@ -421,13 +434,13 @@ export default function App() {
                       referrerPolicy="no-referrer"
                     />
 
-                    {/* Simple Title overlay at bottom left */}
-                    <span className="absolute bottom-3 left-3 text-[9px] md:text-[10px] uppercase tracking-wider font-bold text-white bg-black/60 px-2 py-1 backdrop-blur-xs group-hover:opacity-0 transition-opacity duration-300">
-                      {item.title}
+                    {/* Project/Client label at bottom left */}
+                    <span className="absolute bottom-2.5 left-2.5 max-w-[85%] text-[10px] md:text-[11px] font-semibold text-white bg-black/75 px-2 py-1 backdrop-blur-xs group-hover:opacity-0 transition-opacity duration-300 truncate rounded-xs">
+                      {item.client || item.title}
                     </span>
 
                     {/* Instagram-style Hover Overlay (Square design) */}
-                    <div className="absolute inset-0 bg-neutral-950/80 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center p-4 text-center">
+                    <div className="absolute inset-0 bg-neutral-950/85 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center p-4 text-center">
                       <motion.div
                         initial={{ scale: 0.9, opacity: 0 }}
                         whileInView={{ scale: 1, opacity: 1 }}
@@ -435,14 +448,14 @@ export default function App() {
                       >
                         <Play className="w-4 h-4 fill-current ml-0.5" />
                       </motion.div>
-                      <p className="text-[9px] md:text-[10px] font-bold tracking-widest text-neutral-400 uppercase font-mono truncate w-full">
-                        {item.title}
+                      <p className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase font-mono truncate w-full mb-1">
+                        {item.title || "AI Commercial"}
                       </p>
-                      <p className="text-xs md:text-sm font-bold text-white uppercase tracking-tight truncate w-full px-1">
-                        {item.client.split(" - ")[0]}
+                      <p className="text-xs md:text-sm font-bold text-white tracking-tight line-clamp-2 px-2 text-center leading-snug">
+                        {item.client}
                       </p>
-                      <p className="text-[9px] text-neutral-400 tracking-wider font-mono mt-0.5">
-                        {item.year}
+                      <p className="text-[10px] text-neutral-400 tracking-wider font-mono mt-1.5">
+                        {item.year || "2026"}
                       </p>
                     </div>
                   </motion.div>
